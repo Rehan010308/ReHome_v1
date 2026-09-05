@@ -14,6 +14,7 @@ import OrganizationDashboard from "@/pages/app/OrganizationDashboard";
 import ProfilePage from "@/pages/app/Profile";
 import SettingsPage from "@/pages/app/Settings";
 import ScanItem from "@/pages/app/ScanItem";
+import AddItem from "@/pages/app/AddItem";
 import Requirements from "@/pages/app/Requirements";
 import Matches from "@/pages/app/Matches";
 import Handoffs from "@/pages/app/Handoffs";
@@ -77,6 +78,14 @@ const App = () => (
             element={
               <RequireAccountType type="individual">
                 <ScanItem />
+              </RequireAccountType>
+            }
+          />
+          <Route
+            path="/app/add"
+            element={
+              <RequireAccountType type="individual">
+                <AddItem />
               </RequireAccountType>
             }
           />

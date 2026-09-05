@@ -66,11 +66,18 @@ const Choice = ({
   </button>
 );
 
-export default function ScanItem() {
+/**
+ * One flow, two ways in. Manual entry skips capture and detection but keeps
+ * every later step, so an item typed in by hand still gets condition
+ * assessment, quantity, location and a destination ladder — it is the same
+ * intelligent path, not a lesser CRUD form.
+ */
+export default function ScanItem({ mode = "scan" }: { mode?: "scan" | "manual" }) {
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const manual = mode === "manual";
 
-  const [step, setStep] = useState<Step>("capture");
+  const [step, setStep] = useState<Step>(manual ? "identify" : "capture");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [result, setResult] = useState<ItemIntelligence | null>(null);
@@ -78,8 +85,8 @@ export default function ScanItem() {
   const [saving, setSaving] = useState(false);
 
   const [identity, setIdentity] = useState({ category: "", subCategory: "", itemType: "" });
-  const [correcting, setCorrecting] = useState(false);
-  const [corrected, setCorrected] = useState(false);
+  const [correcting, setCorrecting] = useState(manual);
+  const [corrected, setCorrected] = useState(manual);
   const [condition, setCondition] = useState<string>("");
   const [quantity, setQuantity] = useState(1);
 
@@ -137,11 +144,12 @@ export default function ScanItem() {
   };
 
   const onConfirm = async () => {
-    if (!profile || !file || !result) return;
+    if (!profile) return;
+    if (!manual && (!file || !result)) return;
     setSaving(true);
     setError(null);
     try {
-      const imagePath = await uploadItemImage(profile.userId, file);
+      const imagePath = file ? await uploadItemImage(profile.userId, file) : null;
       const item = await createItem({
         owner_id: profile.userId,
         category: identity.category.trim(),
@@ -151,7 +159,7 @@ export default function ScanItem() {
         reusability: destination.primary.tier === "direct_reuse" ? "High" : destination.primary.tier === "refurbishment" ? "High if repaired" : "Materials recovery",
         reusability_score: reusabilityScoreFromLabel(
           destination.primary.tier === "direct_reuse" ? "High" : destination.primary.tier,
-          result.confidence
+          result?.confidence ?? 70
         ),
         potential_use: destination.primary.recipient,
         destination_path: destination.primary.label,
@@ -159,10 +167,10 @@ export default function ScanItem() {
         location: profile.location ?? undefined,
         latitude: coords?.latitude ?? null,
         longitude: coords?.longitude ?? null,
-        confidence: result.confidence,
-        notes: result.detectedLabel ? `Detected as ${result.detectedLabel}` : undefined,
+        confidence: result?.confidence,
+        notes: result?.detectedLabel ? `Detected as ${result.detectedLabel}` : undefined,
         quantity,
-        ai_source: corrected ? "manual" : result.source,
+        ai_source: corrected ? "manual" : result?.source,
         user_corrected: corrected,
       });
       await persistMatchesForItem(item);
@@ -222,21 +230,38 @@ export default function ScanItem() {
       ) : null}
 
       {/* ── 3. Identify — one question, confirm or correct ──────────── */}
-      {step === "identify" && result ? (
+      {step === "identify" && (result || manual) ? (
         <div className="mt-8">
-          <p className="text-[10px] uppercase tracking-[0.28em] text-lime-200/70">What we found</p>
+          {manual ? (
+            <>
+              <h1 className="font-display text-3xl md:text-4xl font-bold leading-tight tracking-tight">
+                What are you rehoming?
+              </h1>
+              <p className="mt-3 leading-relaxed text-white/55">
+                Describe it in your own words. ReHome handles the rest the same way.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[13px] text-lime-300/80">What we found</p>
 
-          {preview ? (
-            <img src={preview} alt="" className="mt-6 max-h-40 rounded-[18px] object-contain" />
-          ) : null}
+              {preview ? (
+                <img src={preview} alt="" className="mt-6 max-h-40 rounded-[18px] object-contain" />
+              ) : null}
 
-          <h1 className="mt-6 font-display text-3xl md:text-4xl font-bold leading-tight tracking-tight">
-            {identity.itemType}
-          </h1>
-          <p className="mt-2 text-white/50">
-            {identity.category}
-            {result.lowConfidence ? " · low confidence" : result.confidence >= 80 ? " · high confidence" : " · moderate confidence"}
-          </p>
+              <h1 className="mt-6 font-display text-3xl md:text-4xl font-bold leading-tight tracking-tight">
+                {identity.itemType}
+              </h1>
+              <p className="mt-2 text-white/50">
+                {identity.category}
+                {result && result.lowConfidence
+                  ? " — low confidence"
+                  : result && result.confidence >= 80
+                    ? " — high confidence"
+                    : " — moderate confidence"}
+              </p>
+            </>
+          )}
 
           {!correcting ? (
             <>
@@ -270,7 +295,7 @@ export default function ScanItem() {
                 onClick={() => { setCorrected(true); setCorrecting(false); setStep("condition"); }}
                 disabled={!identity.itemType.trim() || !identity.category.trim()}
               >
-                Save correction
+                {manual ? "Continue" : "Save correction"}
               </GlowButton>
             </div>
           )}
@@ -358,7 +383,7 @@ export default function ScanItem() {
       ) : null}
 
       {/* ── 6. Review ───────────────────────────────────────────────── */}
-      {step === "review" && result ? (
+      {step === "review" && (result || manual) ? (
         <div className="mt-8">
           <h1 className="font-display text-3xl font-bold leading-tight tracking-tight">
             Where this should go

@@ -32,18 +32,6 @@ export async function allocateToRequirement(input: {
   return (Array.isArray(data) ? data[0] : data) as MatchAllocationRow;
 }
 
-/**
- * Recipient-side confirmation that the item arrived and is in use. This is the
- * only path that writes impact, so impact can never precede a real handoff.
- */
-export async function confirmSecondLife(allocationId: string): Promise<MatchAllocationRow> {
-  const { data, error } = await requireSupabase().rpc("confirm_second_life", {
-    p_allocation_id: allocationId,
-  });
-  if (error) throw error;
-  return (Array.isArray(data) ? data[0] : data) as MatchAllocationRow;
-}
-
 export async function listDonorAllocations(donorId: string): Promise<AllocationWithContext[]> {
   const { data, error } = await requireSupabase()
     .from("match_allocations")
@@ -64,17 +52,6 @@ export async function listOrganizationAllocations(
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as unknown as AllocationWithContext[];
-}
-
-export async function setAllocationStatus(
-  id: string,
-  status: MatchAllocationRow["status"]
-): Promise<void> {
-  const { error } = await requireSupabase()
-    .from("match_allocations")
-    .update({ status })
-    .eq("id", id);
-  if (error) throw error;
 }
 
 /**

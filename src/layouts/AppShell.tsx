@@ -7,6 +7,7 @@ const individualLinks = [
   { to: "/app/individual", label: "Command" },
   { to: "/app/scan", label: "Scan" },
   { to: "/app/matches", label: "Matches" },
+  { to: "/app/handoffs", label: "Handoffs" },
   { to: "/app/profile", label: "Profile" },
   { to: "/app/settings", label: "Settings" },
 ];
@@ -15,6 +16,7 @@ const organizationLinks = [
   { to: "/app/organization", label: "Command" },
   { to: "/app/requirements", label: "Requirements" },
   { to: "/app/matches", label: "Matches" },
+  { to: "/app/handoffs", label: "Handoffs" },
   { to: "/app/profile", label: "Profile" },
   { to: "/app/settings", label: "Settings" },
 ];

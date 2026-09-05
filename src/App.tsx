@@ -17,6 +17,7 @@ import ScanItem from "@/pages/app/ScanItem";
 import Requirements from "@/pages/app/Requirements";
 import Matches from "@/pages/app/Matches";
 import Handoffs from "@/pages/app/Handoffs";
+import Impact from "@/pages/app/Impact";
 
 /**
  * HashRouter is used so the app can be served from GitHub Pages
@@ -81,6 +82,7 @@ const App = () => (
           />
           <Route path="/app/matches" element={<Matches />} />
           <Route path="/app/handoffs" element={<Handoffs />} />
+          <Route path="/app/impact" element={<Impact />} />
           <Route
             path="/app/organization"
             element={

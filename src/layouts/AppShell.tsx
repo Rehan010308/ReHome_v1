@@ -8,6 +8,7 @@ const individualLinks = [
   { to: "/app/scan", label: "Scan" },
   { to: "/app/matches", label: "Matches" },
   { to: "/app/handoffs", label: "Handoffs" },
+  { to: "/app/impact", label: "Impact" },
   { to: "/app/profile", label: "Profile" },
   { to: "/app/settings", label: "Settings" },
 ];

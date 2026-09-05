@@ -23,6 +23,9 @@ export interface CreateItemInput {
   destination_path?: string;
   image_path?: string | null;
   location?: string;
+  /** Stored blurred, never at exact precision — see services/geo. */
+  latitude?: number | null;
+  longitude?: number | null;
   confidence?: number;
   notes?: string;
   quantity?: number;

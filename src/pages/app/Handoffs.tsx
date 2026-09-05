@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, MapPin } from "lucide-react";
+import { MapPin, Sparkles } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useAsync } from "@/hooks/useAsync";
 import { fetchOwnOrganization } from "@/lib/data/profiles";
@@ -16,6 +16,7 @@ import {
 } from "@/lib/data/handoffs";
 import type { AllocationWithContext } from "@/types/database";
 import { GlowButton, StatusBadge } from "@/components/system/primitives";
+import { DestinationMap } from "@/components/spatial/DestinationMap";
 import { EmptyState, ErrorState, LoadingState } from "@/components/system/DataState";
 
 type Role = "donor" | "organization";
@@ -159,12 +160,44 @@ function AllocationCard({
       ) : null}
 
       {row.status === "confirmed" ? (
-        <p className="mt-3 inline-flex items-center gap-2 text-sm text-lime-200">
-          <Check className="h-4 w-4" />
-          {role === "donor"
-            ? `${row.quantity_allocated} recorded in your impact`
-            : "Confirmed received"}
-        </p>
+        <div
+          className="mt-5 overflow-hidden rounded-[20px] border border-lime-300/20 px-5 py-6"
+          style={{ background: "linear-gradient(180deg, rgba(30,92,70,0.22), rgba(6,11,16,0.6))" }}
+        >
+          <p className="inline-flex items-center gap-2 text-[13px] text-lime-300/90">
+            <Sparkles className="h-3.5 w-3.5" />
+            Second life confirmed
+          </p>
+          <p className="mt-3 font-display text-xl font-semibold leading-snug tracking-tight">
+            {role === "donor" ? (
+              <>
+                Your {item?.item_type?.toLowerCase() ?? "item"} is in use at{" "}
+                {org?.name ?? "the organization"}.
+              </>
+            ) : (
+              <>
+                {row.quantity_allocated} {item?.item_type?.toLowerCase() ?? "item"} received and in
+                use.
+              </>
+            )}
+          </p>
+          {role === "donor" ? (
+            <p className="mt-2 text-[13px] text-white/45">
+              {row.quantity_allocated} recorded in your impact.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Destination revealed once the contribution is committed. */}
+      {!closed && org ? (
+        <div className="mt-5">
+          <DestinationMap
+            destination={{ latitude: org.latitude, longitude: org.longitude }}
+            origin={item ? { latitude: item.latitude, longitude: item.longitude } : null}
+            organizationName={org.name}
+          />
+        </div>
       ) : null}
 
       {scheduling ? (

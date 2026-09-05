@@ -43,24 +43,7 @@ export async function persistMatchesForItem(item: ItemRow): Promise<MatchRow[]> 
       )
       .select("*")
       .single();
-    if (error) {
-      const retry = await requireSupabase()
-        .from("matches")
-        .upsert(
-          {
-            item_id: item.id,
-            requirement_id: row.requirement.id,
-            match_score: row.score,
-            matching_factors: row.factors,
-          },
-          { onConflict: "item_id,requirement_id" }
-        )
-        .select("*")
-        .single();
-      if (retry.error) throw error;
-      saved.push({ ...(retry.data as MatchRow), matching_factors: asFactors((retry.data as MatchRow).matching_factors) });
-      continue;
-    }
+    if (error) throw error;
     saved.push({ ...(data as MatchRow), matching_factors: asFactors((data as MatchRow).matching_factors) });
   }
 

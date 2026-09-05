@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { assessDestination } from "@/services/destination/engine";
 import { mockClassifyImage } from "./mockClassifier";
 import type { AIClassificationResult, ClassifyImageInput } from "./types";
 import {
@@ -23,13 +24,16 @@ function isFileLike(input: ClassifyImageInput): input is File | Blob {
 export async function analyzeItem(input: ClassifyImageInput): Promise<ItemIntelligence> {
   if (!isFileLike(input)) {
     const mock = await mockClassifyImage(input);
+    // The landing demo renders this result verbatim, so the mock's own fields
+    // are passed through untouched; only the destination ladder is attached.
     return {
       ...mock,
       source: "mock",
-      destinationPath: "Direct reuse / donation",
+      destinationPath: assessDestination(mock).primary.label,
       whoMightNeed: mock.potentialUse,
       lowConfidence: mock.confidence < 55,
       detectedLabel: mock.itemType,
+      destination: assessDestination(mock),
     };
   }
 
@@ -58,19 +62,31 @@ export async function analyzeItem(input: ClassifyImageInput): Promise<ItemIntell
     if (error || !data) return baseline;
     const parsed = data as Partial<ItemIntelligence>;
     if (!parsed.category || !parsed.itemType) return baseline;
+
+    const category = String(parsed.category);
+    const subCategory = String(parsed.subCategory ?? baseline.subCategory);
+    const itemType = String(parsed.itemType);
+    const condition = String(parsed.condition ?? baseline.condition);
+
+    // The destination ladder is recomputed locally from whatever the model
+    // reported, rather than trusting a free-text destination back from it —
+    // reuse-first ordering is a ReHome rule, not something a provider decides.
+    const destination = assessDestination({ category, subCategory, itemType, condition });
+
     return {
-      category: String(parsed.category),
-      subCategory: String(parsed.subCategory ?? baseline.subCategory),
-      itemType: String(parsed.itemType),
-      condition: String(parsed.condition ?? baseline.condition),
+      category,
+      subCategory,
+      itemType,
+      condition,
       reusability: String(parsed.reusability ?? baseline.reusability),
       potentialUse: String(parsed.potentialUse ?? baseline.potentialUse),
       confidence: Number(parsed.confidence ?? baseline.confidence),
       source: "rehome-ai",
-      destinationPath: String(parsed.destinationPath ?? baseline.destinationPath),
-      whoMightNeed: String(parsed.whoMightNeed ?? baseline.whoMightNeed),
+      destinationPath: destination.primary.label,
+      whoMightNeed: String(parsed.whoMightNeed ?? destination.primary.recipient),
       lowConfidence: Number(parsed.confidence ?? baseline.confidence) < 55,
       detectedLabel: baseline.detectedLabel,
+      destination,
     };
   } catch {
     return baseline;

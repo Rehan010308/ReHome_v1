@@ -31,14 +31,13 @@ export interface CreateItemInput {
 }
 
 export async function createItem(input: CreateItemInput): Promise<ItemRow> {
-  const payload = { ...input, status: "listed" as const };
-  const first = await requireSupabase().from("items").insert(payload).select("*").single();
-  if (!first.error) return first.data as ItemRow;
-
-  const { quantity: _quantity, ai_source: _ai, user_corrected: _corrected, ...legacy } = payload;
-  const second = await requireSupabase().from("items").insert(legacy).select("*").single();
-  if (second.error) throw first.error;
-  return second.data as ItemRow;
+  const { data, error } = await requireSupabase()
+    .from("items")
+    .insert({ ...input, status: "listed" as const })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as ItemRow;
 }
 
 export async function updateItemStatus(id: string, status: ItemRow["status"]): Promise<void> {

@@ -84,6 +84,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }));
       setDbProfile(profileRowToApp(row, current.email ?? meta.email));
     } catch (hydrateError) {
+      // The profiles row could not be read — most often because the migrations
+      // have not been applied. Fall back to auth metadata so the session still
+      // works, but make it loud: silently substituting hid a missing schema.
+      console.error("[ReHome] profile hydration failed:", hydrateError);
       setDbProfile(meta);
       setError(mapAuthError(hydrateError as { message: string }));
     }
@@ -124,7 +128,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [hydrateProfile]);
 
   const user = session?.user ?? null;
-  const profile = dbProfile ?? (user ? profileFromUser(user) : null);
+  // Memoised: profileFromUser() returns a fresh object on every call, so an
+  // unmemoised fallback changes identity each render and re-triggers every
+  // useAsync loader keyed on the profile.
+  const profile = useMemo<ReHomeProfile | null>(
+    () => dbProfile ?? (user ? profileFromUser(user) : null),
+    [dbProfile, user]
+  );
 
   const refreshProfile = useCallback(async () => {
     if (user) await hydrateProfile(user);

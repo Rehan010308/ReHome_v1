@@ -1,4 +1,5 @@
 import type { AIClassificationResult } from "./types";
+import { assessDestination, type DestinationAssessment } from "@/services/destination/engine";
 
 export type IntelligenceSource = "vision-baseline" | "rehome-ai" | "mock";
 
@@ -8,6 +9,8 @@ export interface ItemIntelligence extends AIClassificationResult {
   whoMightNeed: string;
   lowConfidence: boolean;
   detectedLabel: string | null;
+  /** Full reuse-first ladder, so the UI can show what was ruled out and why. */
+  destination: DestinationAssessment;
 }
 
 const COCO_MAP: Record<string, Partial<ItemIntelligence>> = {
@@ -37,25 +40,20 @@ const COCO_MAP: Record<string, Partial<ItemIntelligence>> = {
   scissors: { category: "Education", subCategory: "Stationery", itemType: "Scissors", potentialUse: "School" },
 };
 
-function destinationFor(category: string, itemType: string): { path: string; who: string; reuse: string; score: number } {
-  const t = itemType.toLowerCase();
-  if (t.includes("broken") || t.includes("waste")) {
-    return { path: "Recycling", who: "Certified recycler", reuse: "Materials recovery", score: 25 };
-  }
-  if (t.includes("laptop") || t.includes("phone") || t.includes("computer")) {
-    return { path: "Refurbishment", who: "Student / refurbisher", reuse: "High if repairable", score: 72 };
-  }
-  if (category === "Education" || t.includes("book") || t.includes("backpack")) {
-    return { path: "Direct reuse / donation", who: "School / student", reuse: "High", score: 88 };
-  }
-  if (category === "Clothing") {
-    return { path: "Direct reuse / donation", who: "Local shelter", reuse: "High", score: 80 };
-  }
-  if (category === "Furniture") {
-    return { path: "Direct reuse / donation", who: "Shelter / community space", reuse: "High", score: 75 };
-  }
-  return { path: "Direct reuse / donation", who: "Local organization", reuse: "Moderate", score: 60 };
+/**
+ * Reusability label derived from the destination ladder rather than guessed
+ * from the category. The wording matters: reusabilityScoreFromLabel() in the
+ * matching engine reads "high" / "moderate" / "material" out of this string.
+ */
+export function reusabilityLabelFor(assessment: DestinationAssessment): string {
+  const { tier, viability } = assessment.primary;
+  if (tier === "direct_reuse") return viability >= 70 ? "High" : "Moderate — confirm condition";
+  if (tier === "refurbishment") return "High if repaired";
+  if (tier === "recycling") return "Materials recovery";
+  return "None — safe handling required";
 }
+
+const UNKNOWN_CONDITION = "Unknown — confirm after visual check";
 
 export function intelligenceFromLabel(label: string, confidence01: number): ItemIntelligence {
   const mapped = COCO_MAP[label.toLowerCase()] ?? {
@@ -64,21 +62,30 @@ export function intelligenceFromLabel(label: string, confidence01: number): Item
     itemType: label.replace(/\b\w/g, (c) => c.toUpperCase()),
     potentialUse: "Local reuse if condition allows",
   };
-  const dest = destinationFor(mapped.category ?? "Household", mapped.itemType ?? label);
+  const category = mapped.category ?? "Household";
+  const subCategory = mapped.subCategory ?? "General";
+  const itemType = mapped.itemType ?? label;
+
+  // Detection tells us what the object is, never whether it works — so the
+  // condition stays unknown here and the ladder is recomputed once the user
+  // confirms it. Reuse-first means unknown is treated as reusable, not broken.
+  const destination = assessDestination({ category, subCategory, itemType, condition: UNKNOWN_CONDITION });
   const confidence = Math.round(Math.min(1, Math.max(0, confidence01)) * 100);
+
   return {
-    category: mapped.category ?? "Household",
-    subCategory: mapped.subCategory ?? "General",
-    itemType: mapped.itemType ?? label,
-    condition: "Unknown — confirm after visual check",
-    reusability: dest.reuse,
-    potentialUse: mapped.potentialUse ?? dest.who,
+    category,
+    subCategory,
+    itemType,
+    condition: UNKNOWN_CONDITION,
+    reusability: reusabilityLabelFor(destination),
+    potentialUse: mapped.potentialUse ?? destination.primary.recipient,
     confidence,
     source: "vision-baseline",
-    destinationPath: dest.path,
-    whoMightNeed: dest.who,
+    destinationPath: destination.primary.label,
+    whoMightNeed: destination.primary.recipient,
     lowConfidence: confidence < 55,
     detectedLabel: label,
+    destination,
   };
 }
 

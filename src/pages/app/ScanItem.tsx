@@ -1,7 +1,9 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Camera } from "lucide-react";
 import { GlowButton, StatusBadge } from "@/components/system/primitives";
+import { DestinationLadder } from "@/components/system/DestinationLadder";
+import { assessDestination } from "@/services/destination/engine";
 import { useAuth } from "@/context/AuthContext";
 import { analyzeItem, type ItemIntelligence } from "@/services/ai";
 import { createItem, uploadItemImage } from "@/lib/data/catalog";
@@ -35,6 +37,20 @@ export default function ScanItem() {
       if (preview) URL.revokeObjectURL(preview);
     };
   }, [preview]);
+
+  // Recomputed from the form, not from the original analysis: correcting the
+  // condition is what moves an item up or down the reuse ladder, so the
+  // routing has to answer to the user's correction immediately.
+  const destination = useMemo(
+    () =>
+      assessDestination({
+        category: form.category,
+        subCategory: form.subCategory,
+        itemType: form.itemType,
+        condition: form.condition,
+      }),
+    [form.category, form.subCategory, form.itemType, form.condition]
+  );
 
   const runAnalysis = async (nextFile: File) => {
     setFile(nextFile);
@@ -89,7 +105,7 @@ export default function ScanItem() {
         reusability: form.reusability.trim(),
         reusability_score: reusabilityScoreFromLabel(form.reusability, result.confidence),
         potential_use: form.potentialUse.trim(),
-        destination_path: result.destinationPath,
+        destination_path: destination.primary.label,
         image_path: imagePath,
         location: form.location.trim(),
         confidence: result.confidence,
@@ -153,17 +169,22 @@ export default function ScanItem() {
       {error ? <p className="mt-4 text-sm text-rose-300">{error}</p> : null}
 
       {result ? (
-        <form onSubmit={onSave} className="mt-8 rh-card rounded-[22px] p-6 space-y-4">
-          <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-white/45">
-            <span>{result.source === "rehome-ai" ? "ReHome AI" : result.source === "mock" ? "Demo classifier" : "Vision baseline"}</span>
-            <span>·</span>
-            <span>{result.confidence}% confidence</span>
-            {result.lowConfidence ? <span className="text-amber-200">Low confidence — please correct</span> : null}
+        <>
+          <div className="mt-8">
+            <DestinationLadder assessment={destination} />
           </div>
-          <p className="text-sm text-white/55">
-            Who might need this: <span className="text-lime-200">{result.whoMightNeed}</span>
-          </p>
-          {(
+
+          <form onSubmit={onSave} className="mt-5 rh-card rounded-[22px] p-6 space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-white/45">
+              <span>{result.source === "rehome-ai" ? "ReHome AI" : result.source === "mock" ? "Demo classifier" : "Vision baseline"}</span>
+              <span>·</span>
+              <span>{result.confidence}% confidence</span>
+              {result.lowConfidence ? <span className="text-amber-200">Low confidence — please correct</span> : null}
+            </div>
+            <p className="text-sm text-white/55">
+              Correct anything below — the routing above updates as you do.
+            </p>
+            {(
             [
               ["category", "Category"],
               ["subCategory", "Subcategory"],
@@ -173,21 +194,22 @@ export default function ScanItem() {
               ["potentialUse", "Potential use"],
               ["location", "Location"],
             ] as const
-          ).map(([key, label]) => (
-            <label key={key} className="block space-y-2">
-              <span className="text-[11px] uppercase tracking-[0.22em] text-white/40">{label}</span>
-              <input
-                className="rh-input"
-                value={form[key]}
-                onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))}
-                required
-              />
-            </label>
-          ))}
-          <GlowButton type="submit" disabled={saving}>
-            {saving ? "Saving and matching…" : "Add to ReHome"}
-          </GlowButton>
-        </form>
+            ).map(([key, label]) => (
+              <label key={key} className="block space-y-2">
+                <span className="text-[11px] uppercase tracking-[0.22em] text-white/40">{label}</span>
+                <input
+                  className="rh-input"
+                  value={form[key]}
+                  onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                  required
+                />
+              </label>
+            ))}
+            <GlowButton type="submit" disabled={saving}>
+              {saving ? "Saving and matching…" : "Add to ReHome"}
+            </GlowButton>
+          </form>
+        </>
       ) : null}
     </div>
   );

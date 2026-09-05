@@ -59,17 +59,20 @@ export default function Matches() {
   const isOrg = profile?.accountType === "organization";
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Depend on the user id, not the profile object: an unstable profile
+  // identity would rebuild the loader every render and refetch in a loop.
+  const userId = profile?.userId;
   const loader = useMemo(
     () => async () => {
-      if (!profile) return [] as MatchWithContext[];
+      if (!userId) return [] as MatchWithContext[];
       if (isOrg) {
-        const org = await fetchOwnOrganization(profile.userId);
+        const org = await fetchOwnOrganization(userId);
         if (!org) return [];
         return listMatchesForOrganization(org.id);
       }
-      return listMatchesForOwner(profile.userId);
+      return listMatchesForOwner(userId);
     },
-    [isOrg, profile]
+    [isOrg, userId]
   );
 
   const { data, loading, error, reload } = useAsync(loader, [loader]);

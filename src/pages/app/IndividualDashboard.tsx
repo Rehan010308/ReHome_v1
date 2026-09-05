@@ -76,13 +76,16 @@ export default function IndividualDashboard() {
       <div className="relative mx-auto max-w-5xl px-5 pb-24 pt-14 md:pt-20">
         {/* ── Opening statement + the two ways in ─────────────────────── */}
         <header className="max-w-2xl">
+          {firstName ? (
+            <p className="mb-4 text-[14px] text-white/35">Welcome back, {firstName}</p>
+          ) : null}
           <h1 className="font-display text-[clamp(2.1rem,5.4vw,3.6rem)] font-bold leading-[1.02] tracking-[-0.02em]">
             Turn something unused
             <span className="block text-white/40">into something useful.</span>
           </h1>
           <p className="mt-5 max-w-md text-[15px] leading-relaxed text-white/50">
-            {firstName ? `${firstName}, s` : "S"}how ReHome an object and it works out what it is,
-            what state it is in, and where it can do the most good next.
+            Show ReHome an object. It works out what it is, what state it is in, and where it can
+            do the most good next.
           </p>
         </header>
 
@@ -115,7 +118,7 @@ export default function IndividualDashboard() {
           >
             <Suspense
               fallback={
-                <div className="grid h-[300px] place-items-center md:h-[380px]">
+                <div className="grid h-[260px] place-items-center md:h-[330px]">
                   <div className="h-2 w-2 animate-pulse rounded-full bg-lime-300" />
                 </div>
               }
@@ -123,7 +126,7 @@ export default function IndividualDashboard() {
               <SpatialNetwork
                 objects={spatialObjects}
                 destinations={spatialDestinations}
-                className="h-[300px] w-full md:h-[380px]"
+                className="h-[260px] w-full md:h-[330px]"
               />
             </Suspense>
 

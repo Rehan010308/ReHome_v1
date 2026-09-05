@@ -69,11 +69,14 @@ export async function signedItemImageUrl(path: string | null): Promise<string | 
   return data.signedUrl;
 }
 
+/** Demand that can still receive contributions — partially fulfilled included. */
 export async function listOpenRequirements(): Promise<RequirementRow[]> {
   const { data, error } = await requireSupabase()
     .from("requirements")
     .select("*")
-    .eq("status", "open")
+    .in("status", ["open", "partially_fulfilled"])
+    .gt("quantity_remaining", 0)
+    .order("urgency", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as RequirementRow[];
@@ -94,15 +97,21 @@ export async function createRequirement(input: {
   category: string;
   subcategory: string;
   item_type: string;
-  quantity: number;
+  quantity_requested: number;
   required_condition: string;
   location?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   urgency: UrgencyLevel;
+  needed_by?: string | null;
   notes?: string;
 }): Promise<RequirementRow> {
+  // quantity_received starts at 0 and only ever moves through the allocation
+  // RPC; quantity_remaining and fulfillment_percentage are generated columns
+  // and must never be written from the client.
   const { data, error } = await requireSupabase()
     .from("requirements")
-    .insert({ ...input, status: "open" })
+    .insert({ ...input, status: "open", quantity_received: 0 })
     .select("*")
     .single();
   if (error) throw error;

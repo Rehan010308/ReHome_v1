@@ -1,13 +1,49 @@
 import type { ItemRow, OrganizationRow, RequirementRow } from "@/types/database";
+import { coordsOf, distanceKm, formatDistance } from "@/services/geo";
+
+/**
+ * Supply → demand scoring.
+ *
+ * Two rules shape this engine:
+ *
+ * 1. Relevance gates everything. Condition, distance, urgency and verification
+ *    describe how *convenient* a handoff would be, never whether the item is
+ *    usable at all, so they cannot produce a match on their own.
+ *
+ * 2. Certainty is never overstated. An item type that came from an unconfirmed
+ *    detection scores lower than a confirmed one and is labelled as needing
+ *    confirmation — "Book" is not "Mathematics Textbook" until someone says so.
+ *
+ * Weights total exactly 100 so a perfect match reads 100 without clamping:
+ *   type/category 38 + condition 15 + demand 10 + urgency 10
+ * + proximity 14 + reuse 7 + verification 6
+ */
+
+export type FactorKind = "positive" | "caution";
+
+export interface MatchFactor {
+  label: string;
+  kind: FactorKind;
+}
 
 export interface MatchScoreResult {
   score: number;
-  factors: string[];
+  factors: MatchFactor[];
+  /** True when the item type is an unconfirmed machine guess. */
+  needsTypeConfirmation: boolean;
+  distanceKm: number | null;
+  /** How many units this item could actually contribute right now. */
+  quantityOffered: number;
+  /** Demand still outstanding after this contribution. */
+  demandRemainingAfter: number;
 }
 
-function norm(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase();
+/** Legacy string list, for surfaces that only render plain factors. */
+export function factorLabels(factors: MatchFactor[]): string[] {
+  return factors.map((f) => f.label);
 }
+
+const norm = (value: string | null | undefined): string => (value ?? "").trim().toLowerCase();
 
 function tokens(value: string): string[] {
   return norm(value)
@@ -26,63 +62,71 @@ function overlap(a: string, b: string): number {
   return hit / Math.max(ta.size, tb.size);
 }
 
-/**
- * Weights are chosen so a flawless match lands on exactly 100 without being
- * clamped — otherwise good and perfect matches both read "100%" and the score
- * stops carrying information.
- *   category 28 + type 22 + condition 14 + reuse 8
- * + urgency 10 + proximity 12 + verified 4 + quantity 2 = 100
- */
-const urgencyBoost: Record<string, number> = {
-  low: 0,
-  medium: 3,
-  high: 7,
-  critical: 10,
-};
-
 const conditionRank: Record<string, number> = {
-  excellent: 4,
-  good: 3,
-  wearable: 3,
-  usable: 3,
-  fair: 2,
-  repairable: 2,
-  any: 1,
-  unknown: 1,
-  poor: 0,
+  excellent: 4, good: 3, wearable: 3, usable: 3, clean: 3, working: 3,
+  fair: 2, repairable: 2, any: 1, unknown: 1, poor: 0, broken: 0,
 };
 
 function conditionFit(itemCondition: string, required: string): number {
   const have = conditionRank[norm(itemCondition)] ?? 1;
   const need = conditionRank[norm(required)] ?? 1;
-  if (need <= 1) return 10;
-  if (have >= need) return 14;
+  if (need <= 1) return 11;
+  if (have >= need) return 15;
   if (have + 1 >= need) return 7;
   return 0;
 }
 
-function proximityHint(itemLoc: string | null | undefined, reqLoc: string | null | undefined): { points: number; label: string | null } {
-  const a = norm(itemLoc);
-  const b = norm(reqLoc);
-  if (!a || !b) return { points: 4, label: "Location not fully specified" };
-  if (a === b) return { points: 12, label: `Same location · ${reqLoc}` };
-  if (a.includes(b) || b.includes(a) || overlap(a, b) > 0.3) {
-    return { points: 9, label: `Nearby · ${reqLoc}` };
-  }
-  return { points: 3, label: `Different area · ${reqLoc}` };
+const urgencyPoints: Record<string, number> = { low: 0, medium: 4, high: 8, critical: 10 };
+
+/**
+ * Proximity points fall off with distance but are capped at 14 — well below the
+ * 38 available for item fit. That is deliberate: an exact item 10 km away must
+ * be able to beat the wrong item 1 km away.
+ */
+function proximityPoints(km: number | null): number {
+  if (km === null) return 5;
+  if (km <= 2) return 14;
+  if (km <= 5) return 12;
+  if (km <= 10) return 10;
+  if (km <= 25) return 7;
+  if (km <= 50) return 4;
+  return 1;
 }
 
 /**
- * Weighted supply→demand score. Not a keyword search:
- * category/type fit, condition, reuse value, urgency, proximity, org verification.
+ * An item's type is trustworthy when the user confirmed or corrected it, or
+ * when the classifier was confident. Otherwise it is a guess and must be
+ * treated as one.
  */
+export function isTypeConfirmed(item: Pick<ItemRow, "user_corrected" | "confidence" | "ai_source">): boolean {
+  if (item.user_corrected) return true;
+  if (item.ai_source === "manual") return true;
+  return (item.confidence ?? 0) >= 75;
+}
+
 export function scoreItemAgainstRequirement(
   item: ItemRow,
   requirement: RequirementRow,
   organization: OrganizationRow | null
 ): MatchScoreResult {
-  const factors: string[] = [];
+  const factors: MatchFactor[] = [];
   let score = 0;
+
+  const itemCoords = coordsOf(item);
+  const reqCoords = coordsOf(requirement) ?? (organization ? coordsOf(organization) : null);
+  const km = itemCoords && reqCoords ? Number(distanceKm(itemCoords, reqCoords).toFixed(2)) : null;
+
+  const available = Math.max(0, Number(item.quantity_available ?? item.quantity ?? 1));
+  const remaining = Math.max(0, Number(requirement.quantity_remaining ?? requirement.quantity_requested));
+  const quantityOffered = Math.min(available, remaining);
+
+  const empty: MatchScoreResult = {
+    score: 0, factors: [], needsTypeConfirmation: false,
+    distanceKm: km, quantityOffered: 0, demandRemainingAfter: remaining,
+  };
+
+  // Nothing left to give, or nothing left to need.
+  if (available <= 0 || remaining <= 0) return empty;
 
   const categoryHit = norm(item.category) === norm(requirement.category);
   const typeHit = norm(item.item_type) === norm(requirement.item_type);
@@ -92,68 +136,105 @@ export function scoreItemAgainstRequirement(
     overlap(item.item_type, requirement.category)
   );
 
-  // Relevance gate. Condition, proximity, urgency and verification describe how
-  // *convenient* a handoff would be, not whether the organization can use the
-  // item at all — so on their own they must never produce a match. Without this
-  // a sofa scored 51 against a textbook requirement purely on context points.
-  if (!categoryHit && !typeHit && typeOverlap < 0.2) {
-    return { score: 0, factors: [] };
+  // Relevance gate.
+  if (!categoryHit && !typeHit && typeOverlap < 0.2) return empty;
+
+  const confirmed = isTypeConfirmed(item);
+  const needsTypeConfirmation = !confirmed;
+
+  // ── Item fit (38) ────────────────────────────────────────────────────────
+  if (typeHit && confirmed) {
+    score += 38;
+    factors.push({ label: `Exactly what they asked for — ${requirement.item_type}`, kind: "positive" });
+  } else if (typeHit) {
+    score += 27;
+    factors.push({ label: `Looks like ${requirement.item_type}, but the type is unconfirmed`, kind: "caution" });
+  } else if (categoryHit && typeOverlap >= 0.35) {
+    score += confirmed ? 26 : 20;
+    factors.push({ label: `Compatible with ${requirement.item_type}`, kind: "positive" });
+  } else if (categoryHit) {
+    score += confirmed ? 18 : 14;
+    factors.push({ label: `Same category — they need ${requirement.category.toLowerCase()}`, kind: "positive" });
+  } else {
+    score += 8;
+    factors.push({ label: `Possible match — item type needs confirmation`, kind: "caution" });
   }
 
-  if (categoryHit) {
-    score += 28;
-    factors.push(`Exact item category · ${item.category}`);
-  } else if (typeOverlap > 0.2) {
-    score += 12;
-    factors.push("Related category / type");
+  if (needsTypeConfirmation && !(typeHit && confirmed)) {
+    factors.push({ label: "Confirm what this item is to improve the match", kind: "caution" });
   }
 
-  if (typeHit) {
-    score += 22;
-    factors.push(`Exact item type · ${item.item_type}`);
-  } else if (typeOverlap >= 0.35) {
-    score += Math.round(18 * typeOverlap);
-    factors.push("Compatible item type");
-  }
-
+  // ── Condition (15) ───────────────────────────────────────────────────────
   const cond = conditionFit(item.condition, requirement.required_condition);
   score += cond;
-  if (cond >= 10) factors.push(`Suitable condition · ${item.condition}`);
+  if (norm(item.condition).includes("unknown")) {
+    factors.push({ label: "Condition not confirmed yet", kind: "caution" });
+  } else if (cond >= 11) {
+    factors.push({ label: `Condition suits their requirement — ${item.condition}`, kind: "positive" });
+  } else if (cond === 0) {
+    factors.push({ label: `They asked for ${requirement.required_condition.toLowerCase()} condition`, kind: "caution" });
+  }
 
+  // ── Demand contribution (10) ─────────────────────────────────────────────
+  // A single unit against a large requirement is a real, valid contribution —
+  // it just isn't fulfillment. Covering more of the gap scores higher, but
+  // partial contributions are never penalised into irrelevance.
+  const coverage = quantityOffered / remaining;
+  score += coverage >= 1 ? 10 : coverage >= 0.5 ? 8 : coverage >= 0.2 ? 6 : 4;
+  factors.push({
+    label:
+      quantityOffered >= remaining
+        ? `Covers the remaining ${remaining} they need`
+        : `Contributes ${quantityOffered} of ${remaining} still needed`,
+    kind: "positive",
+  });
+
+  // ── Urgency (10) ─────────────────────────────────────────────────────────
+  score += urgencyPoints[requirement.urgency] ?? 4;
+  if (requirement.urgency === "high" || requirement.urgency === "critical") {
+    factors.push({ label: "They need this urgently", kind: "positive" });
+  }
+
+  // ── Proximity (14) ───────────────────────────────────────────────────────
+  score += proximityPoints(km);
+  const distanceLabel = formatDistance(km);
+  if (distanceLabel) {
+    factors.push({
+      label: km !== null && km <= 25 ? `Nearby handoff — ${distanceLabel}` : `${distanceLabel}`,
+      kind: km !== null && km <= 25 ? "positive" : "caution",
+    });
+  } else {
+    factors.push({ label: "Distance unknown — add a location to improve ranking", kind: "caution" });
+  }
+
+  if (km !== null && organization && km > Number(organization.service_radius_km ?? 25)) {
+    factors.push({ label: "Outside this organization's usual collection area", kind: "caution" });
+  }
+
+  // ── Reuse potential (7) ──────────────────────────────────────────────────
   const reuse = Number(item.reusability_score) || 50;
   if (reuse >= 70) {
-    score += 8;
-    factors.push("High reuse potential");
+    score += 7;
+    factors.push({ label: "High reuse potential — goes straight back into use", kind: "positive" });
   } else if (reuse >= 40) {
     score += 4;
-    factors.push("Moderate reuse potential");
   }
 
-  const urg = urgencyBoost[requirement.urgency] ?? 4;
-  score += urg;
-  if (requirement.urgency === "high" || requirement.urgency === "critical") {
-    factors.push(`Organization currently needs this item · ${requirement.urgency} urgency`);
-  } else {
-    factors.push("Open requirement");
-  }
-
-  const prox = proximityHint(item.location, requirement.location ?? organization?.location);
-  score += prox.points;
-  if (prox.label) factors.push(prox.label);
-
-  if (organization?.verification_status === "verified" || organization?.is_directory) {
-    score += 4;
-    factors.push(`${organization.name} is a verified destination`);
-  }
-
-  if (requirement.quantity >= 10) {
-    score += 2;
-    factors.push(`Quantity requested · ${requirement.quantity}`);
+  // ── Verification (6) ─────────────────────────────────────────────────────
+  if (organization?.verification_status === "verified") {
+    score += 6;
+    factors.push({ label: `${organization.name} is a verified organization`, kind: "positive" });
+  } else if (organization) {
+    factors.push({ label: `${organization.name} is not yet verified`, kind: "caution" });
   }
 
   return {
     score: Math.max(0, Math.min(100, Math.round(score))),
     factors,
+    needsTypeConfirmation,
+    distanceKm: km,
+    quantityOffered,
+    demandRemainingAfter: Math.max(0, remaining - quantityOffered),
   };
 }
 

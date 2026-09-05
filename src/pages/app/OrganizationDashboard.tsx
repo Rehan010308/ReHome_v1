@@ -103,7 +103,7 @@ export default function OrganizationDashboard() {
                 <li key={row.id} className="flex justify-between gap-3 text-sm border-b border-white/8 pb-2">
                   <span>
                     {row.item_type}
-                    <span className="ml-2 text-white/40">×{row.quantity}</span>
+                    <span className="ml-2 text-white/40">{row.quantity_received}/{row.quantity_requested}</span>
                   </span>
                   <span className="text-[10px] uppercase tracking-[0.16em] text-lime-200/80">{row.urgency}</span>
                 </li>

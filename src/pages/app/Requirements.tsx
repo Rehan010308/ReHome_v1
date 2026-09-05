@@ -20,7 +20,7 @@ export default function Requirements() {
     category: "",
     subcategory: "",
     item_type: "",
-    quantity: 1,
+    quantity_requested: 1,
     required_condition: "Any",
     location: org?.location ?? profile?.location ?? "",
     urgency: "medium" as UrgencyLevel,
@@ -38,7 +38,7 @@ export default function Requirements() {
         category: form.category.trim(),
         subcategory: form.subcategory.trim(),
         item_type: form.item_type.trim(),
-        quantity: Number(form.quantity) || 1,
+        quantity_requested: Number(form.quantity_requested) || 1,
         required_condition: form.required_condition.trim() || "Any",
         location: form.location.trim(),
         urgency: form.urgency,
@@ -111,8 +111,8 @@ export default function Requirements() {
                 type="number"
                 min={1}
                 required
-                value={form.quantity}
-                onChange={(e) => setForm((prev) => ({ ...prev, quantity: Number(e.target.value) }))}
+                value={form.quantity_requested}
+                onChange={(e) => setForm((prev) => ({ ...prev, quantity_requested: Number(e.target.value) }))}
               />
             </label>
             <label className="block space-y-2">
@@ -154,7 +154,7 @@ export default function Requirements() {
             <div>
               <p className="font-display font-semibold">{row.item_type}</p>
               <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/40">
-                {row.category} · qty {row.quantity} · {row.status}
+                {row.category} · {row.quantity_received}/{row.quantity_requested} contributed · {row.quantity_remaining} remaining
               </p>
             </div>
             <div className="flex items-center gap-3">

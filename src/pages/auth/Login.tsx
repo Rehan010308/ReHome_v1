@@ -1,8 +1,8 @@
 import { FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { GlowButton, PageShell } from "@/components/system/primitives";
+import { Reveal } from "@/components/system/Reveal";
+import { GlowButton } from "@/components/system/primitives";
 
 export default function Login() {
   const { signIn, configured, error, clearError } = useAuth();
@@ -21,64 +21,76 @@ export default function Login() {
       await signIn(email, password);
       navigate(from && from.startsWith("/app") ? from : "/app", { replace: true });
     } catch {
-      /* error shown from context */
+      /* surfaced from context */
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <PageShell className="pt-28 pb-16">
-      <div className="relative mx-auto w-full max-w-md px-4">
-        <p className="text-[11px] tracking-[0.4em] uppercase text-lime-200/75 font-semibold">Command access</p>
-        <h1 className="mt-4 font-display text-4xl font-bold tracking-tight">Sign in</h1>
-        <p className="mt-3 text-white/55 leading-relaxed">
-          Continue to your Individual or Organization command center.
-        </p>
+    <div className="relative min-h-screen bg-[#050a10] text-white">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-[640px]"
+        style={{ background: "radial-gradient(65% 50% at 50% 0%, rgba(30,92,70,0.30), transparent 72%)" }}
+      />
+
+      <div className="relative mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-24">
+        <Reveal>
+          <h1 className="font-display text-[clamp(2.4rem,7vw,3.4rem)] font-bold leading-[1.02] tracking-[-0.025em]">
+            Welcome back.
+          </h1>
+          <p className="mt-5 text-[17px] leading-relaxed text-white/45">
+            Pick up where your items left off.
+          </p>
+        </Reveal>
 
         {!configured ? (
-          <p className="mt-8 rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100/90">
-            Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to <code>.env</code> to enable authentication.
+          <p className="mt-10 rounded-[16px] border border-amber-300/20 bg-amber-300/[0.07] px-5 py-4 text-[15px] text-amber-100/90">
+            Authentication is not configured. Add your Supabase URL and anon key to <code>.env</code>.
           </p>
         ) : null}
 
-        <form onSubmit={onSubmit} className="mt-8 space-y-4" onChange={clearError}>
-          <label className="block space-y-2">
-            <span className="text-[11px] uppercase tracking-[0.22em] text-white/40">Email</span>
-            <input
-              required
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="rh-input"
-            />
-          </label>
-          <label className="block space-y-2">
-            <span className="text-[11px] uppercase tracking-[0.22em] text-white/40">Password</span>
-            <input
-              required
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="rh-input"
-            />
-          </label>
-          {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-          <GlowButton type="submit" className="w-full" disabled={busy || !configured}>
-            {busy ? "Authenticating…" : "Enter ReHome"}
-            <ArrowRight className="h-4 w-4" />
-          </GlowButton>
-        </form>
+        <Reveal delay={90}>
+          <form onSubmit={onSubmit} className="mt-12 space-y-8" onChange={clearError}>
+            <label className="block">
+              <span className="text-[13px] text-white/40">Email</span>
+              <input
+                required
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-2 w-full border-0 border-b border-white/12 bg-transparent px-0 py-3 text-[19px] text-white outline-none transition-colors focus:border-lime-300/60"
+              />
+            </label>
 
-        <p className="mt-6 text-sm text-white/45">
-          New to ReHome?{" "}
-          <Link to="/signup" className="text-lime-300 hover:text-lime-200">
-            Create an account
-          </Link>
-        </p>
+            <label className="block">
+              <span className="text-[13px] text-white/40">Password</span>
+              <input
+                required
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-2 w-full border-0 border-b border-white/12 bg-transparent px-0 py-3 text-[19px] text-white outline-none transition-colors focus:border-lime-300/60"
+              />
+            </label>
+
+            {error ? <p className="text-[15px] text-rose-300">{error}</p> : null}
+
+            <GlowButton type="submit" className="w-full" disabled={busy || !configured}>
+              {busy ? "Signing in…" : "Sign in"}
+            </GlowButton>
+          </form>
+
+          <p className="mt-10 text-[15px] text-white/40">
+            New here?{" "}
+            <Link to="/signup" className="text-lime-300 transition-colors hover:text-lime-200">
+              Create an account
+            </Link>
+          </p>
+        </Reveal>
       </div>
-    </PageShell>
+    </div>
   );
 }

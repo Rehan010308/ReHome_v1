@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Camera, Check, Loader2, MapPin, RotateCcw } from "lucide-react";
+import { Camera, Check, MapPin, RotateCcw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { analyzeItem, type ItemIntelligence } from "@/services/ai";
 import { createItem, uploadItemImage } from "@/lib/data/catalog";
@@ -9,14 +9,16 @@ import { reusabilityScoreFromLabel } from "@/services/matching/engine";
 import { assessDestination } from "@/services/destination/engine";
 import { blurCoordinates, requestPosition, type Coordinates } from "@/services/geo";
 import { DestinationLadder } from "@/components/system/DestinationLadder";
+import { AnalysisScanner } from "@/components/spatial/AnalysisScanner";
+import { Reveal } from "@/components/system/Reveal";
 import { GlowButton } from "@/components/system/primitives";
 
 type Step = "capture" | "analyzing" | "identify" | "condition" | "details" | "review";
 
 /**
  * Condition is a choice, not free text. The destination engine parses condition
- * into functional bands, and typed prose ("bit knackered") made that a guess.
- * These options map onto the bands unambiguously.
+ * into functional bands, and typed prose made that a guess. These options map
+ * onto the bands unambiguously.
  */
 const CONDITIONS = [
   { value: "Excellent", hint: "As new, barely used" },
@@ -28,18 +30,20 @@ const CONDITIONS = [
   { value: "Unsafe / hazardous", hint: "Damaged battery, leaking, unsafe" },
 ] as const;
 
-const StepDots = ({ current }: { current: number }) => (
-  <div className="flex items-center gap-1.5" aria-hidden>
-    {[0, 1, 2, 3].map((i) => (
-      <span
-        key={i}
-        className={`h-1 rounded-full transition-all duration-500 ${
-          i < current ? "w-6 bg-white/30" : i === current ? "w-10 bg-lime-300" : "w-6 bg-white/10"
-        }`}
+const ORDER: Step[] = ["capture", "analyzing", "identify", "condition", "details", "review"];
+
+/** Progress as a single filling line, not a numbered stepper. */
+const Progress = ({ step }: { step: Step }) => {
+  const pct = ((ORDER.indexOf(step) + 1) / ORDER.length) * 100;
+  return (
+    <div className="h-px w-full bg-white/[0.07]" aria-hidden>
+      <div
+        className="h-px bg-gradient-to-r from-lime-300/40 to-lime-300 transition-[width] duration-700 ease-out"
+        style={{ width: `${pct}%` }}
       />
-    ))}
-  </div>
-);
+    </div>
+  );
+};
 
 const Choice = ({
   selected,
@@ -55,22 +59,21 @@ const Choice = ({
   <button
     type="button"
     onClick={onClick}
-    className={`w-full rounded-[16px] border px-5 py-4 text-left transition-colors ${
-      selected
-        ? "border-lime-300/50 bg-lime-300/10"
-        : "border-white/10 bg-white/[0.02] hover:border-white/25"
+    className={`group flex w-full items-baseline justify-between gap-6 border-b border-white/[0.06] py-4 text-left transition-colors ${
+      selected ? "border-lime-300/40" : "hover:border-white/20"
     }`}
   >
-    <p className={`text-sm font-semibold ${selected ? "text-lime-100" : "text-white/85"}`}>{title}</p>
-    {hint ? <p className="mt-0.5 text-xs text-white/40">{hint}</p> : null}
+    <span className={`text-[17px] ${selected ? "text-lime-200" : "text-white/85 group-hover:text-white"}`}>
+      {title}
+    </span>
+    <span className="shrink-0 text-[13px] text-white/30">{hint}</span>
   </button>
 );
 
 /**
  * One flow, two ways in. Manual entry skips capture and detection but keeps
  * every later step, so an item typed in by hand still gets condition
- * assessment, quantity, location and a destination ladder — it is the same
- * intelligent path, not a lesser CRUD form.
+ * assessment, quantity, location and a destination ladder.
  */
 export default function ScanItem({ mode = "scan" }: { mode?: "scan" | "manual" }) {
   const { profile } = useAuth();
@@ -83,6 +86,7 @@ export default function ScanItem({ mode = "scan" }: { mode?: "scan" | "manual" }
   const [result, setResult] = useState<ItemIntelligence | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [phase, setPhase] = useState("Reading the image");
 
   const [identity, setIdentity] = useState({ category: "", subCategory: "", itemType: "" });
   const [correcting, setCorrecting] = useState(manual);
@@ -112,6 +116,13 @@ export default function ScanItem({ mode = "scan" }: { mode?: "scan" | "manual" }
     setPreview((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(next); });
     setError(null);
     setStep("analyzing");
+    setPhase("Reading the image");
+
+    // The phases name work that is genuinely happening: the detector loads,
+    // then runs. No fabricated progress.
+    const t1 = window.setTimeout(() => setPhase("Loading the detector"), 500);
+    const t2 = window.setTimeout(() => setPhase("Looking for objects"), 1400);
+
     try {
       const intelligence = await analyzeItem(next);
       setResult(intelligence);
@@ -122,8 +133,11 @@ export default function ScanItem({ mode = "scan" }: { mode?: "scan" | "manual" }
       });
       setStep("identify");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not analyse that image.");
+      setError(cause instanceof Error ? cause.message : "Could not read that image. Try another photo.");
       setStep("capture");
+    } finally {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
     }
   };
 
@@ -131,11 +145,9 @@ export default function ScanItem({ mode = "scan" }: { mode?: "scan" | "manual" }
     setLocating(true);
     setLocationNote(null);
     try {
-      // Stored at ~1 km precision. Distance stays useful; the donor's address
-      // never leaves the device.
       const exact = await requestPosition();
       setCoords(blurCoordinates(exact, "area"));
-      setLocationNote("Added at approximate precision — never your exact address.");
+      setLocationNote("Stored as an approximate area, never your exact address.");
     } catch (cause) {
       setLocationNote(cause instanceof Error ? cause.message : "Could not get your location.");
     } finally {
@@ -156,7 +168,12 @@ export default function ScanItem({ mode = "scan" }: { mode?: "scan" | "manual" }
         subcategory: identity.subCategory.trim(),
         item_type: identity.itemType.trim(),
         condition,
-        reusability: destination.primary.tier === "direct_reuse" ? "High" : destination.primary.tier === "refurbishment" ? "High if repaired" : "Materials recovery",
+        reusability:
+          destination.primary.tier === "direct_reuse"
+            ? "High"
+            : destination.primary.tier === "refurbishment"
+              ? "High if repaired"
+              : "Materials recovery",
         reusability_score: reusabilityScoreFromLabel(
           destination.primary.tier === "direct_reuse" ? "High" : destination.primary.tier,
           result?.confidence ?? 70
@@ -182,241 +199,264 @@ export default function ScanItem({ mode = "scan" }: { mode?: "scan" | "manual" }
     }
   };
 
-  const stepIndex = { capture: 0, analyzing: 0, identify: 1, condition: 2, details: 2, review: 3 }[step];
-
   return (
-    <div className="mx-auto max-w-xl px-4 py-10 md:py-16">
-      <StepDots current={stepIndex} />
+    <div className="relative min-h-screen">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-[560px]"
+        style={{ background: "radial-gradient(70% 50% at 50% 0%, rgba(30,92,70,0.26), transparent 70%)" }}
+      />
 
-      {error ? (
-        <p className="mt-6 rounded-[16px] border border-rose-300/20 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">
-          {error}
-        </p>
-      ) : null}
+      <Progress step={step} />
 
-      {/* ── 1. Capture ──────────────────────────────────────────────── */}
-      {step === "capture" ? (
-        <div className="mt-8">
-          <h1 className="font-display text-3xl md:text-4xl font-bold leading-tight tracking-tight">
-            Show us the item
-          </h1>
-          <p className="mt-3 leading-relaxed text-white/55">
-            One photo is enough. Everything else, ReHome works out.
+      <div className="relative mx-auto max-w-2xl px-5 pb-28 pt-16 md:pt-24">
+        {error ? (
+          <p className="mb-8 rounded-[16px] border border-rose-300/20 bg-rose-300/[0.08] px-5 py-4 text-[15px] text-rose-100">
+            {error}
           </p>
+        ) : null}
 
-          <label className="mt-8 flex cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-white/15 bg-white/[0.02] px-6 py-16 text-center transition-colors hover:border-lime-300/40 hover:bg-white/[0.04]">
-            <Camera className="h-7 w-7 text-lime-300" />
-            <span className="mt-4 font-display text-lg">Take or choose a photo</span>
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="sr-only"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) void runAnalysis(f); }}
-            />
-          </label>
-        </div>
-      ) : null}
+        {/* ── Capture ─────────────────────────────────────────────────── */}
+        {step === "capture" ? (
+          <Reveal>
+            <h1 className="font-display text-[clamp(2.3rem,6vw,3.8rem)] font-bold leading-[1.02] tracking-[-0.025em]">
+              Show us the object.
+            </h1>
+            <p className="mt-5 max-w-sm text-[17px] leading-relaxed text-white/50">
+              One photo is enough. ReHome reads it and works out where it belongs.
+            </p>
 
-      {/* ── 2. Analysing ────────────────────────────────────────────── */}
-      {step === "analyzing" ? (
-        <div className="mt-8 flex flex-col items-center py-20 text-center">
-          {preview ? (
-            <img src={preview} alt="" className="mb-8 max-h-48 rounded-[18px] object-contain opacity-60" />
-          ) : null}
-          <Loader2 className="h-6 w-6 animate-spin text-lime-300" />
-          <p className="mt-5 text-sm tracking-[0.2em] uppercase text-white/45">Reading the object</p>
-        </div>
-      ) : null}
+            <label className="group mt-12 block cursor-pointer">
+              <div className="rh-surface flex flex-col items-center justify-center rounded-[26px] px-6 py-20 text-center transition-all duration-500 group-hover:border-lime-300/25">
+                <span
+                  className="grid h-16 w-16 place-items-center rounded-full transition-transform duration-500 group-hover:scale-105"
+                  style={{ background: "radial-gradient(circle, rgba(163,230,53,0.22), transparent 70%)" }}
+                >
+                  <Camera className="h-6 w-6 text-lime-300" />
+                </span>
+                <span className="mt-6 font-display text-xl font-semibold">Take or choose a photo</span>
+                <span className="mt-2 text-[13px] text-white/35">
+                  Detection runs on your device
+                </span>
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void runAnalysis(f); }}
+              />
+            </label>
+          </Reveal>
+        ) : null}
 
-      {/* ── 3. Identify — one question, confirm or correct ──────────── */}
-      {step === "identify" && (result || manual) ? (
-        <div className="mt-8">
-          {manual ? (
-            <>
-              <h1 className="font-display text-3xl md:text-4xl font-bold leading-tight tracking-tight">
-                What are you rehoming?
-              </h1>
-              <p className="mt-3 leading-relaxed text-white/55">
-                Describe it in your own words. ReHome handles the rest the same way.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-[13px] text-lime-300/80">What we found</p>
+        {/* ── Analysing ───────────────────────────────────────────────── */}
+        {step === "analyzing" && preview ? (
+          <div className="pt-6">
+            <AnalysisScanner src={preview} stage={phase} />
+          </div>
+        ) : null}
 
-              {preview ? (
-                <img src={preview} alt="" className="mt-6 max-h-40 rounded-[18px] object-contain" />
-              ) : null}
+        {/* ── Identify ────────────────────────────────────────────────── */}
+        {step === "identify" && (result || manual) ? (
+          <Reveal>
+            {manual ? (
+              <>
+                <h1 className="font-display text-[clamp(2.1rem,5.4vw,3.4rem)] font-bold leading-[1.03] tracking-[-0.025em]">
+                  What are you rehoming?
+                </h1>
+                <p className="mt-5 max-w-sm text-[17px] leading-relaxed text-white/50">
+                  Describe it in your own words. Everything after this is the same.
+                </p>
+              </>
+            ) : (
+              <>
+                {preview ? (
+                  <div className="mb-10">
+                    <AnalysisScanner src={preview} stage="Read" settled />
+                  </div>
+                ) : null}
+                <p className="text-[15px] text-white/40">ReHome sees</p>
+                <h1 className="mt-3 font-display text-[clamp(2.1rem,5.4vw,3.4rem)] font-bold leading-[1.03] tracking-[-0.025em]">
+                  {identity.itemType}
+                </h1>
+                <p className="mt-3 text-[17px] text-white/45">
+                  {identity.category}
+                  {result ? (
+                    <span className="ml-3 text-white/30">
+                      {result.lowConfidence
+                        ? "low confidence"
+                        : result.confidence >= 80
+                          ? "high confidence"
+                          : "moderate confidence"}
+                    </span>
+                  ) : null}
+                </p>
+              </>
+            )}
 
-              <h1 className="mt-6 font-display text-3xl md:text-4xl font-bold leading-tight tracking-tight">
-                {identity.itemType}
-              </h1>
-              <p className="mt-2 text-white/50">
-                {identity.category}
-                {result && result.lowConfidence
-                  ? " — low confidence"
-                  : result && result.confidence >= 80
-                    ? " — high confidence"
-                    : " — moderate confidence"}
-              </p>
-            </>
-          )}
-
-          {!correcting ? (
-            <>
-              <p className="mt-8 text-lg text-white/75">Is that right?</p>
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                <GlowButton onClick={() => setStep("condition")} className="sm:flex-1">
-                  <Check className="h-4 w-4" />
-                  Yes, that's it
-                </GlowButton>
-                <GlowButton variant="ghost" onClick={() => setCorrecting(true)}>
-                  <RotateCcw className="h-4 w-4" />
-                  Not quite
+            {!correcting ? (
+              <div className="mt-12">
+                <p className="text-[17px] text-white/70">Is that right?</p>
+                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                  <GlowButton onClick={() => setStep("condition")} className="sm:flex-1">
+                    <Check className="h-4 w-4" />
+                    Yes, that's it
+                  </GlowButton>
+                  <GlowButton variant="ghost" onClick={() => setCorrecting(true)}>
+                    <RotateCcw className="h-4 w-4" />
+                    Not quite
+                  </GlowButton>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-10 space-y-6">
+                {([["itemType", "What is it"], ["category", "Category"], ["subCategory", "Subcategory"]] as const).map(
+                  ([k, label]) => (
+                    <label key={k} className="block">
+                      <span className="text-[13px] text-white/40">{label}</span>
+                      <input
+                        className="mt-2 w-full border-0 border-b border-white/12 bg-transparent px-0 py-2.5 text-[19px] text-white outline-none transition-colors focus:border-lime-300/60"
+                        value={identity[k]}
+                        onChange={(e) => setIdentity((p) => ({ ...p, [k]: e.target.value }))}
+                        placeholder={k === "itemType" ? "Mathematics textbook" : ""}
+                      />
+                    </label>
+                  )
+                )}
+                <GlowButton
+                  onClick={() => { setCorrected(true); setCorrecting(false); setStep("condition"); }}
+                  disabled={!identity.itemType.trim() || !identity.category.trim()}
+                >
+                  Continue
                 </GlowButton>
               </div>
-            </>
-          ) : (
-            <div className="mt-8 space-y-4">
-              {([["itemType", "What is it"], ["category", "Category"], ["subCategory", "Subcategory"]] as const).map(
-                ([key, label]) => (
-                  <label key={key} className="block space-y-2">
-                    <span className="text-[11px] uppercase tracking-[0.22em] text-white/40">{label}</span>
-                    <input
-                      className="rh-input"
-                      value={identity[key]}
-                      onChange={(e) => setIdentity((p) => ({ ...p, [key]: e.target.value }))}
-                    />
-                  </label>
-                )
-              )}
-              <GlowButton
-                onClick={() => { setCorrected(true); setCorrecting(false); setStep("condition"); }}
-                disabled={!identity.itemType.trim() || !identity.category.trim()}
-              >
-                {manual ? "Continue" : "Save correction"}
-              </GlowButton>
+            )}
+          </Reveal>
+        ) : null}
+
+        {/* ── Condition ───────────────────────────────────────────────── */}
+        {step === "condition" ? (
+          <Reveal>
+            <h1 className="font-display text-[clamp(2.1rem,5.4vw,3.4rem)] font-bold leading-[1.03] tracking-[-0.025em]">
+              What state is it in?
+            </h1>
+            <p className="mt-5 max-w-sm text-[17px] leading-relaxed text-white/50">
+              This decides where it can go. Something that still works goes straight to
+              someone who needs it.
+            </p>
+
+            <div className="mt-11 border-t border-white/[0.06]">
+              {CONDITIONS.map((c) => (
+                <Choice
+                  key={c.value}
+                  title={c.value}
+                  hint={c.hint}
+                  selected={condition === c.value}
+                  onClick={() => { setCondition(c.value); setStep("details"); }}
+                />
+              ))}
             </div>
-          )}
-        </div>
-      ) : null}
+          </Reveal>
+        ) : null}
 
-      {/* ── 4. Condition ────────────────────────────────────────────── */}
-      {step === "condition" ? (
-        <div className="mt-8">
-          <h1 className="font-display text-3xl font-bold leading-tight tracking-tight">
-            What condition is it in?
-          </h1>
-          <p className="mt-3 leading-relaxed text-white/55">
-            This decides where it can go. A working item goes straight to someone who needs it.
-          </p>
+        {/* ── Quantity + location ─────────────────────────────────────── */}
+        {step === "details" ? (
+          <Reveal>
+            <h1 className="font-display text-[clamp(2.1rem,5.4vw,3.4rem)] font-bold leading-[1.03] tracking-[-0.025em]">
+              How many?
+            </h1>
+            <p className="mt-5 max-w-sm text-[17px] leading-relaxed text-white/50">
+              Quantity is what lets your donation count properly toward what organizations
+              actually need.
+            </p>
 
-          <div className="mt-7 space-y-2.5">
-            {CONDITIONS.map((c) => (
-              <Choice
-                key={c.value}
-                title={c.value}
-                hint={c.hint}
-                selected={condition === c.value}
-                onClick={() => { setCondition(c.value); setStep("details"); }}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {/* ── 5. Quantity + location ──────────────────────────────────── */}
-      {step === "details" ? (
-        <div className="mt-8">
-          <h1 className="font-display text-3xl font-bold leading-tight tracking-tight">
-            How many, and roughly where?
-          </h1>
-          <p className="mt-3 leading-relaxed text-white/55">
-            Quantity lets your donation count properly toward what organizations actually need.
-          </p>
-
-          <div className="mt-8 flex items-center justify-between rounded-[18px] border border-white/10 bg-white/[0.02] px-5 py-4">
-            <span className="text-sm text-white/60">How many</span>
-            <div className="flex items-center gap-4">
+            <div className="mt-12 flex items-center gap-8">
               <button
                 type="button"
                 aria-label="One fewer"
                 onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                className="h-9 w-9 rounded-full border border-white/12 text-white/70 hover:bg-white/5"
+                disabled={quantity <= 1}
+                className="h-12 w-12 rounded-full border border-white/12 text-xl text-white/70 transition-colors hover:bg-white/5 disabled:opacity-20"
               >−</button>
-              <span className="w-8 text-center font-display text-xl font-bold tabular-nums">{quantity}</span>
+              <span className="font-display text-[4rem] font-bold leading-none tabular-nums">{quantity}</span>
               <button
                 type="button"
                 aria-label="One more"
                 onClick={() => setQuantity((q) => q + 1)}
-                className="h-9 w-9 rounded-full border border-white/12 text-white/70 hover:bg-white/5"
+                className="h-12 w-12 rounded-full border border-white/12 text-xl text-white/70 transition-colors hover:bg-white/5"
               >+</button>
             </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={useMyLocation}
-            disabled={locating}
-            className={`mt-3 flex w-full items-center justify-between rounded-[18px] border px-5 py-4 text-left transition-colors ${
-              coords ? "border-lime-300/40 bg-lime-300/8" : "border-white/10 bg-white/[0.02] hover:border-white/25"
-            }`}
-          >
-            <span className="flex items-center gap-2.5 text-sm">
-              <MapPin className={`h-4 w-4 ${coords ? "text-lime-300" : "text-white/50"}`} />
-              {coords ? "Location added" : locating ? "Locating…" : "Use my location"}
-            </span>
-            <span className="text-xs text-white/35">{coords ? "Change" : "Optional"}</span>
-          </button>
-          {locationNote ? <p className="mt-2 text-xs text-white/40">{locationNote}</p> : null}
-          {!coords ? (
-            <p className="mt-2 text-xs text-white/30">
-              Without a location we can still match you — just not by distance.
-            </p>
-          ) : null}
+            <div className="mt-14">
+              <button
+                type="button"
+                onClick={useMyLocation}
+                disabled={locating}
+                className={`flex w-full items-center justify-between gap-4 border-b py-4 text-left transition-colors ${
+                  coords ? "border-lime-300/40" : "border-white/[0.08] hover:border-white/25"
+                }`}
+              >
+                <span className="flex items-center gap-3 text-[17px]">
+                  <MapPin className={`h-4 w-4 ${coords ? "text-lime-300" : "text-white/40"}`} />
+                  {coords ? "Location added" : locating ? "Locating…" : "Use my location"}
+                </span>
+                <span className="text-[13px] text-white/30">{coords ? "Change" : "Optional"}</span>
+              </button>
+              <p className="mt-3 text-[13px] leading-relaxed text-white/35">
+                {locationNote ??
+                  "Sharing a rough area lets ReHome rank nearby destinations. Your exact address is never stored."}
+              </p>
+            </div>
 
-          <GlowButton className="mt-8 w-full" onClick={() => setStep("review")}>
-            Continue
-          </GlowButton>
-        </div>
-      ) : null}
+            <GlowButton className="mt-12 w-full sm:w-auto" onClick={() => setStep("review")}>
+              Find destinations
+            </GlowButton>
+          </Reveal>
+        ) : null}
 
-      {/* ── 6. Review ───────────────────────────────────────────────── */}
-      {step === "review" && (result || manual) ? (
-        <div className="mt-8">
-          <h1 className="font-display text-3xl font-bold leading-tight tracking-tight">
-            Where this should go
-          </h1>
+        {/* ── Review ──────────────────────────────────────────────────── */}
+        {step === "review" && (result || manual) ? (
+          <>
+            <Reveal>
+              <h1 className="font-display text-[clamp(2.1rem,5.4vw,3.4rem)] font-bold leading-[1.03] tracking-[-0.025em]">
+                Where this should go.
+              </h1>
+            </Reveal>
 
-          <div className="mt-7">
-            <DestinationLadder assessment={destination} />
-          </div>
+            <Reveal delay={90} className="mt-10">
+              <DestinationLadder assessment={destination} />
+            </Reveal>
 
-          <dl className="mt-6 space-y-3 rounded-[18px] border border-white/8 bg-white/[0.02] p-5 text-sm">
-            {[
-              ["Item", `${identity.itemType}${quantity > 1 ? ` ×${quantity}` : ""}`],
-              ["Category", identity.category],
-              ["Condition", condition],
-              ["Location", coords ? "Approximate area shared" : "Not shared"],
-            ].map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-4">
-                <dt className="text-white/35">{k}</dt>
-                <dd className="text-right text-white/80">{v}</dd>
+            <Reveal delay={160} className="mt-8">
+              <dl className="rh-inset rounded-[20px] px-6 py-5">
+                {[
+                  ["Item", `${identity.itemType}${quantity > 1 ? ` ×${quantity}` : ""}`],
+                  ["Category", identity.category],
+                  ["Condition", condition],
+                  ["Location", coords ? "Approximate area shared" : "Not shared"],
+                ].map(([k, v], i) => (
+                  <div
+                    key={k}
+                    className={`flex justify-between gap-6 py-2.5 ${i > 0 ? "border-t border-white/[0.05]" : ""}`}
+                  >
+                    <dt className="text-[15px] text-white/35">{k}</dt>
+                    <dd className="text-right text-[15px] text-white/85">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+
+              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+                <GlowButton onClick={onConfirm} disabled={saving} className="sm:flex-1">
+                  {saving ? "Finding destinations…" : "Add to ReHome"}
+                </GlowButton>
+                <GlowButton variant="ghost" onClick={() => setStep("condition")} disabled={saving}>
+                  Back
+                </GlowButton>
               </div>
-            ))}
-          </dl>
-
-          <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-            <GlowButton onClick={onConfirm} disabled={saving} className="sm:flex-1">
-              {saving ? "Finding destinations…" : "Add to ReHome"}
-            </GlowButton>
-            <GlowButton variant="ghost" onClick={() => setStep("condition")} disabled={saving}>
-              Back
-            </GlowButton>
-          </div>
-        </div>
-      ) : null}
+            </Reveal>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

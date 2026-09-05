@@ -1,0 +1,139 @@
+@import './animations.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ReHome design system.
+ * All colors are HSL (hue saturation lightness) as CSS variables so
+ * Tailwind theme colors map 1:1 to them. Mirrors the original ReHome.
+ */
+
+@layer base {
+  :root {
+    /* ── Base ─────────────────────────────── */
+    --background: 0 0% 99%;
+    --foreground: 220 40% 10%;
+
+    /* ── Primary — rich emerald ───────────── */
+    --primary: 158 84% 36%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 158 80% 50%;
+
+    /* ── Secondary — warm ivory tint ──────── */
+    --secondary: 43 60% 95%;
+    --secondary-foreground: 38 50% 25%;
+
+    /* ── Muted ────────────────────────────── */
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 12% 46%;
+
+    /* ── Accent — warm amber ──────────────── */
+    --accent: 39 95% 54%;
+    --accent-foreground: 38 80% 10%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 158 84% 36%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 40% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 40% 10%;
+
+    --radius: 1rem;
+
+    /* ── Gradients ────────────────────────── */
+    --gradient-hero: linear-gradient(160deg, hsl(0 0% 100%) 0%, hsl(158 50% 97%) 50%, hsl(43 60% 97%) 100%);
+    --gradient-card: linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(248, 252, 250, 0.9) 100%);
+    --gradient-impact: linear-gradient(135deg, hsl(158, 84%, 36%) 0%, hsl(39, 95%, 54%) 100%);
+
+    /* ── Shadows ──────────────────────────── */
+    --shadow-soft: 0 2px 16px hsla(220, 30%, 10%, 0.06);
+    --shadow-hover: 0 8px 32px hsla(220, 30%, 10%, 0.12);
+    --shadow-glow: 0 0 40px hsla(158, 84%, 50%, 0.22);
+
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    --background: 224 39% 8%;
+    --foreground: 210 18% 93%;
+
+    --card: 224 34% 11%;
+    --card-foreground: 210 18% 93%;
+
+    --popover: 224 34% 11%;
+    --popover-foreground: 210 18% 93%;
+
+    --primary: 158 72% 44%;
+    --primary-foreground: 158 60% 8%;
+    --primary-glow: 158 78% 56%;
+
+    --secondary: 224 30% 16%;
+    --secondary-foreground: 210 18% 93%;
+
+    --muted: 224 30% 16%;
+    --muted-foreground: 218 14% 62%;
+
+    --accent: 39 95% 60%;
+    --accent-foreground: 38 80% 8%;
+
+    --destructive: 0 62.8% 50.6%;
+    --destructive-foreground: 210 18% 93%;
+
+    --border: 224 28% 19%;
+    --input: 224 28% 19%;
+    --ring: 158 72% 44%;
+
+    --gradient-hero: linear-gradient(160deg, hsl(224 42% 9%) 0%, hsl(224 38% 11%) 50%, hsl(222 36% 13%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(224 34% 11%), hsl(224 30% 14%));
+    --gradient-impact: linear-gradient(135deg, hsl(158 65% 38%) 0%, hsl(39 90% 52%) 100%);
+    --shadow-glow: 0 0 40px hsla(158, 72%, 44%, 0.28);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply text-foreground;
+    background: #050a10;
+    font-family: "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  .rh-card {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow: 0 30px 80px -42px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .rh-nav {
+    background: rgba(5, 10, 16, 0.72);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 20px 50px -24px rgba(0, 0, 0, 0.8);
+  }
+
+  .rh-input {
+    @apply w-full rounded-[14px] px-4 py-3 text-white outline-none transition-shadow;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .rh-input:focus {
+    border-color: rgba(163, 230, 53, 0.45);
+    box-shadow: 0 0 0 3px rgba(163, 230, 53, 0.12);
+  }
+}

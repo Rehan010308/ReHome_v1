@@ -29,7 +29,8 @@ export default function AccountType() {
         <p className="text-[11px] tracking-[0.4em] uppercase text-lime-200/75 font-semibold">Onboarding</p>
         <h1 className="mt-4 font-display text-4xl font-bold tracking-tight">How will you use ReHome?</h1>
         <p className="mt-3 text-white/55 leading-relaxed">
-          This routes you to the correct command center. Organization profiles will expand in Phase 3.
+          This routes you to the correct command center. Organizations can publish requirements
+          immediately after this step.
         </p>
         <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button

@@ -15,6 +15,7 @@ import {
   type AccountType,
   type ReHomeProfile,
 } from "@/lib/profile";
+import { ensureOrganization, ensureProfile, fetchProfile, profileRowToApp, updateProfile } from "@/lib/data/profiles";
 
 interface SignUpInput {
   name: string;
@@ -30,11 +31,21 @@ interface AuthContextValue {
   user: User | null;
   profile: ReHomeProfile | null;
   error: string | null;
+  refreshProfile: () => Promise<void>;
   signUp: (input: SignUpInput) => Promise<{ needsEmailConfirmation: boolean }>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   setAccountType: (accountType: AccountType) => Promise<void>;
   updateName: (name: string) => Promise<void>;
+  updateProfileDetails: (patch: {
+    name?: string;
+    phone?: string;
+    location?: string;
+    bio?: string;
+    city?: string;
+    region?: string;
+    country?: string;
+  }) => Promise<void>;
   clearError: () => void;
 }
 
@@ -48,13 +59,35 @@ function mapAuthError(error: { message: string } | null | undefined): string {
   if (/email not confirmed/i.test(msg)) return "Confirm your email before signing in.";
   if (/password/i.test(msg) && /least/i.test(msg)) return "Password must be at least 6 characters.";
   if (/rate limit/i.test(msg)) return "Too many attempts. Wait a moment and try again.";
+  if (/schema cache/i.test(msg) || /could not find the table/i.test(msg)) {
+    return "Database schema is not applied yet. Run supabase/migrations in the Supabase SQL editor.";
+  }
   return msg;
 }
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
+  const [dbProfile, setDbProfile] = useState<ReHomeProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const hydrateProfile = useCallback(async (current: User) => {
+    const meta = profileFromUser(current);
+    try {
+      const row =
+        (await fetchProfile(current.id)) ??
+        (await ensureProfile({
+          userId: current.id,
+          email: current.email ?? meta.email,
+          name: meta.name,
+          accountType: meta.accountType,
+        }));
+      setDbProfile(profileRowToApp(row, current.email ?? meta.email));
+    } catch (hydrateError) {
+      setDbProfile(meta);
+      setError(mapAuthError(hydrateError as { message: string }));
+    }
+  }, []);
 
   useEffect(() => {
     if (!supabase) {
@@ -64,10 +97,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     let cancelled = false;
 
-    supabase.auth.getSession().then(({ data, error: sessionError }) => {
+    supabase.auth.getSession().then(async ({ data, error: sessionError }) => {
       if (cancelled) return;
       if (sessionError) setError(mapAuthError(sessionError));
       setSession(data.session ?? null);
+      if (data.session?.user) await hydrateProfile(data.session.user);
       setLoading(false);
     });
 
@@ -75,17 +109,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next);
-      setLoading(false);
+      if (next?.user) {
+        void hydrateProfile(next.user).finally(() => setLoading(false));
+      } else {
+        setDbProfile(null);
+        setLoading(false);
+      }
     });
 
     return () => {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [hydrateProfile]);
 
   const user = session?.user ?? null;
-  const profile = useMemo(() => (user ? profileFromUser(user) : null), [user]);
+  const profile = dbProfile ?? (user ? profileFromUser(user) : null);
+
+  const refreshProfile = useCallback(async () => {
+    if (user) await hydrateProfile(user);
+  }, [hydrateProfile, user]);
 
   const signUp = useCallback(async (input: SignUpInput) => {
     if (!supabase) throw new Error("Supabase is not configured.");
@@ -132,33 +175,93 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setError(mapped);
       throw new Error(mapped);
     }
+    setDbProfile(null);
   }, []);
 
   const setAccountType = useCallback(async (accountType: AccountType) => {
     if (!supabase) throw new Error("Supabase is not configured.");
+    const current = supabase.auth.getUser ? (await supabase.auth.getUser()).data.user : null;
+    if (!current) throw new Error("You need to be signed in.");
     setError(null);
-    const { error: updateError } = await supabase.auth.updateUser({
-      data: { account_type: accountType },
-    });
-    if (updateError) {
-      const mapped = mapAuthError(updateError);
+    try {
+      const meta = profileFromUser(current);
+      const row = await ensureProfile({
+        userId: current.id,
+        email: current.email ?? "",
+        name: meta.name,
+        accountType,
+      });
+      if (!row.account_type) {
+        await updateProfile(current.id, { account_type: accountType });
+      }
+      if (accountType === "organization") {
+        await ensureOrganization({
+          userId: current.id,
+          name: row.display_name,
+          email: current.email ?? "",
+        });
+      }
+      await supabase.auth.updateUser({ data: { account_type: accountType } });
+      await hydrateProfile(current);
+    } catch (updateError) {
+      const mapped = mapAuthError(updateError as { message: string });
       setError(mapped);
       throw new Error(mapped);
     }
-  }, []);
+  }, [hydrateProfile]);
 
   const updateName = useCallback(async (name: string) => {
     if (!supabase) throw new Error("Supabase is not configured.");
+    const current = (await supabase.auth.getUser()).data.user;
+    if (!current) throw new Error("You need to be signed in.");
     setError(null);
-    const { error: updateError } = await supabase.auth.updateUser({
-      data: { full_name: name.trim() },
-    });
-    if (updateError) {
-      const mapped = mapAuthError(updateError);
+    try {
+      await updateProfile(current.id, { display_name: name.trim() });
+      await supabase.auth.updateUser({ data: { full_name: name.trim() } });
+      await hydrateProfile(current);
+    } catch (updateError) {
+      const mapped = mapAuthError(updateError as { message: string });
       setError(mapped);
       throw new Error(mapped);
     }
-  }, []);
+  }, [hydrateProfile]);
+
+  const updateProfileDetails = useCallback(
+    async (patch: {
+      name?: string;
+      phone?: string;
+      location?: string;
+      bio?: string;
+      city?: string;
+      region?: string;
+      country?: string;
+    }) => {
+      if (!supabase) throw new Error("Supabase is not configured.");
+      const current = (await supabase.auth.getUser()).data.user;
+      if (!current) throw new Error("You need to be signed in.");
+      setError(null);
+      try {
+        await updateProfile(current.id, {
+          display_name: patch.name?.trim(),
+          phone: patch.phone,
+          location: patch.location,
+          bio: patch.bio,
+          city: patch.city,
+          region: patch.region,
+          country: patch.country,
+        });
+        if (patch.name) {
+          await supabase.auth.updateUser({ data: { full_name: patch.name.trim() } });
+        }
+        await hydrateProfile(current);
+      } catch (updateError) {
+        const mapped = mapAuthError(updateError as { message: string });
+        setError(mapped);
+        throw new Error(mapped);
+      }
+    },
+    [hydrateProfile]
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -168,14 +271,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       user,
       profile,
       error,
+      refreshProfile,
       signUp,
       signIn,
       signOut,
       setAccountType,
       updateName,
+      updateProfileDetails,
       clearError: () => setError(null),
     }),
-    [loading, session, user, profile, error, signUp, signIn, signOut, setAccountType, updateName]
+    [
+      loading,
+      session,
+      user,
+      profile,
+      error,
+      refreshProfile,
+      signUp,
+      signIn,
+      signOut,
+      setAccountType,
+      updateName,
+      updateProfileDetails,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

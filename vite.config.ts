@@ -9,4 +9,7 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  optimizeDeps: {
+    include: ["@tensorflow/tfjs", "@tensorflow-models/coco-ssd"],
+  },
 });

@@ -45,8 +45,6 @@ Copy `.env.example` to `.env` and fill in values when Supabase is configured
 
 ## AI service layer
 
-`src/services/ai/` defines the classification contract
-(`AIClassificationResult`) and currently ships a **mock classifier**
-(`mockClassifier.ts`) that returns realistic placeholder results. It is NOT the
-final AI — the real model plugs into `src/services/ai/index.ts` in Phase 8
-without touching any UI code.
+The real model plugs into `src/services/ai/index.ts` (`analyzeItem`) without
+touching UI. Browser baseline is COCO-SSD. Optional OpenRouter/Claude runs in
+`supabase/functions/analyze-item`. Keys stay server-side.

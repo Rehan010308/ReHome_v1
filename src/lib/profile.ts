@@ -7,6 +7,9 @@ export interface ReHomeProfile {
   email: string;
   name: string;
   accountType: AccountType | null;
+  phone?: string | null;
+  location?: string | null;
+  bio?: string | null;
 }
 
 export function isAccountType(value: unknown): value is AccountType {

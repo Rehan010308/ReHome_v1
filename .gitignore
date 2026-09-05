@@ -31,3 +31,6 @@ pnpm-debug.log*
 # Capacitor / native
 android/
 ios/
+
+# Supabase CLI cache
+supabase/.temp/

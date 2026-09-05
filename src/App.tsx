@@ -15,6 +15,7 @@ import ProfilePage from "@/pages/app/Profile";
 import SettingsPage from "@/pages/app/Settings";
 import ScanItem from "@/pages/app/ScanItem";
 import Requirements from "@/pages/app/Requirements";
+import Matches from "@/pages/app/Matches";
 
 /**
  * HashRouter is used so the app can be served from GitHub Pages
@@ -77,6 +78,7 @@ const App = () => (
               </RequireAccountType>
             }
           />
+          <Route path="/app/matches" element={<Matches />} />
           <Route
             path="/app/organization"
             element={

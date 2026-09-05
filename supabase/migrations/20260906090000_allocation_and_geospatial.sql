@@ -23,6 +23,10 @@ create extension if not exists postgis with schema extensions;
 -- Rebuilt rather than ALTER TYPE ... ADD VALUE, which cannot be used in the
 -- same transaction it is added in and would make this file order-dependent.
 
+-- Postgres refuses to retype a column that a policy references, so the policy
+-- is dropped first and recreated below with the corrected predicate.
+drop policy if exists requirements_select_open_or_own on public.requirements;
+
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'requirement_state') then
@@ -42,6 +46,17 @@ begin
     alter table public.requirements alter column status set default 'open';
   end if;
 end $$;
+
+-- Recreated with 'partially_fulfilled' included. Without it, a requirement
+-- disappears from every donor's view the moment the first person contributes,
+-- which would make multi-donor aggregation impossible — the exact thing this
+-- migration exists to enable.
+create policy requirements_select_open_or_own on public.requirements
+  for select to authenticated
+  using (
+    status in ('open', 'partially_fulfilled')
+    or (select private.owns_organization(organization_id))
+  );
 
 do $$
 begin

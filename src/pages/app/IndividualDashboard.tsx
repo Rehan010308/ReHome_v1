@@ -1,145 +1,153 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, Camera, HeartHandshake } from "lucide-react";
+import { ArrowRight, Camera } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useAsync } from "@/hooks/useAsync";
 import { listOwnItems } from "@/lib/data/catalog";
-import { listMatchesForOwner } from "@/lib/data/matches";
-import {
-  AnimatedBackground,
-  DashboardCard,
-  DataPanel,
-  GlowButton,
-  StatusBadge,
-} from "@/components/system/primitives";
-import { EmptyState, ErrorState, LoadingState } from "@/components/system/DataState";
+import { fetchImpactSummary, EMPTY_IMPACT } from "@/lib/data/impact";
+import type { ItemRow, ItemStatus } from "@/types/database";
+import { AnimatedBackground } from "@/components/system/primitives";
+import { ErrorState, LoadingState } from "@/components/system/DataState";
 
-const stages = ["Object", "Scanning", "Understanding", "Structuring", "Matching", "Destination"];
+/**
+ * Lifecycle in plain language. The user should never have to learn the
+ * database's vocabulary to understand where their item is.
+ */
+const STAGE: Record<ItemStatus, { label: string; done?: boolean; live?: boolean }> = {
+  listed: { label: "Ready to route" },
+  analyzing: { label: "Being analysed", live: true },
+  confirmed: { label: "Ready to route" },
+  matched: { label: "Destinations found", live: true },
+  allocated: { label: "Committed — awaiting handoff", live: true },
+  handoff_scheduled: { label: "Handoff scheduled", live: true },
+  handed_over: { label: "Handed over", live: true },
+  second_life_confirmed: { label: "Second life confirmed", done: true },
+  withdrawn: { label: "Withdrawn" },
+};
+
+const ItemLine = ({ item }: { item: ItemRow }) => {
+  const stage = STAGE[item.status] ?? { label: item.status };
+  return (
+    <li className="flex items-center justify-between gap-4 border-b border-white/6 py-4 last:border-b-0">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-white/85">
+          {item.item_type}
+          {item.quantity > 1 ? <span className="ml-1.5 text-white/40">×{item.quantity}</span> : null}
+        </p>
+        <p className="mt-0.5 truncate text-xs text-white/35">{item.category}</p>
+      </div>
+      <span
+        className={`shrink-0 text-xs ${
+          stage.done ? "text-lime-200" : stage.live ? "text-white/70" : "text-white/35"
+        }`}
+      >
+        {stage.live ? (
+          <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-lime-300 align-middle" />
+        ) : null}
+        {stage.label}
+      </span>
+    </li>
+  );
+};
 
 export default function IndividualDashboard() {
   const { profile } = useAuth();
-  const itemsQuery = useAsync(async () => (profile ? listOwnItems(profile.userId) : []), [profile?.userId]);
-  const matchesQuery = useAsync(async () => (profile ? listMatchesForOwner(profile.userId) : []), [profile?.userId]);
+  const userId = profile?.userId;
+
+  const itemsQuery = useAsync(async () => (userId ? listOwnItems(userId) : []), [userId]);
+  const impactQuery = useAsync(
+    async () => (userId ? fetchImpactSummary(userId) : EMPTY_IMPACT),
+    [userId]
+  );
 
   const items = itemsQuery.data ?? [];
-  const matches = matchesQuery.data ?? [];
-  const topMatch = matches[0];
+  const impact = impactQuery.data ?? EMPTY_IMPACT;
+
+  const inMotion = items.filter(
+    (i) => i.status !== "second_life_confirmed" && i.status !== "withdrawn"
+  );
 
   return (
     <div className="relative">
       <AnimatedBackground />
-      <div className="relative mx-auto max-w-6xl px-4 py-10 md:py-14">
-        <StatusBadge>Individual command center</StatusBadge>
-        <h1 className="mt-5 font-display text-4xl md:text-5xl font-bold tracking-tight">
-          Welcome back, {profile?.name.split(" ")[0]}
+
+      <div className="relative mx-auto max-w-3xl px-4 py-12 md:py-20">
+        {/* PRIMARY ACTION — everything else is secondary to this. */}
+        <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-lime-200/70">
+          {profile?.name?.split(" ")[0] ?? "Welcome"}
+        </p>
+        <h1 className="mt-4 font-display text-4xl md:text-5xl font-bold leading-[1.03] tracking-tight">
+          What can you
+          <span className="block bg-gradient-to-r from-lime-300 via-emerald-300 to-teal-300 bg-clip-text text-transparent">
+            rehome today?
+          </span>
         </h1>
-        <p className="mt-3 max-w-2xl text-white/55 leading-relaxed">
-          Scan unused objects, confirm what they are, and send them toward the organization that
-          can use them next.
+        <p className="mt-5 max-w-lg leading-relaxed text-white/55">
+          Photograph something you no longer use. ReHome works out what it is, what
+          condition it is in, and where it can create the most value next.
         </p>
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          {stages.map((stage, i) => (
-            <span
-              key={stage}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-white/55"
-              style={{ opacity: 1 - i * 0.08 }}
-            >
-              {stage}
-            </span>
-          ))}
-        </div>
+        <Link
+          to="/app/scan"
+          className="group mt-8 inline-flex items-center gap-3 rounded-full bg-gradient-to-r from-lime-300 via-emerald-300 to-emerald-400 px-9 py-4 text-sm font-bold uppercase tracking-[0.14em] text-[#06231a] shadow-[0_0_44px_rgba(163,230,53,0.3)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_0_64px_rgba(163,230,53,0.45)]"
+        >
+          <Camera className="h-4 w-4" />
+          Scan an item
+          <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+        </Link>
 
-        <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <DataPanel label="Items listed" value={String(items.length)} hint="Stored in your ReHome inventory" />
-          <DataPanel
-            label="Active matches"
-            value={String(matches.filter((m) => m.status === "suggested" || m.status === "accepted").length)}
-            hint={topMatch ? `Top score ${Math.round(Number(topMatch.match_score))}%` : "Scan to generate matches"}
-          />
-          <DataPanel label="Location" value={profile?.location?.trim() || "—"} hint="Used for proximity scoring" />
-          <DataPanel label="Account" value="Live" hint="Supabase session + profile row" />
-        </div>
-
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <DashboardCard
-            title="Scan an item"
-            description="Photograph an unused object. Browser vision proposes a profile; you confirm it before it is stored."
-            action={
-              <Link to="/app/scan">
-                <GlowButton>
-                  Open scanner
-                  <ArrowRight className="h-4 w-4" />
-                </GlowButton>
+        {/* CURRENT STATE */}
+        <div className="mt-16">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="font-display text-lg font-semibold">Your items</h2>
+            {inMotion.length > 0 ? (
+              <Link
+                to="/app/matches"
+                className="text-xs uppercase tracking-[0.16em] text-lime-200/80 hover:text-lime-200"
+              >
+                Review destinations
               </Link>
-            }
-          >
-            <div className="flex items-center gap-3 text-sm text-white/50">
-              <Camera className="h-4 w-4 text-lime-300" />
-              COCO-SSD baseline in the browser. Optional cloud AI stays on the server.
-            </div>
-          </DashboardCard>
+            ) : null}
+          </div>
 
-          <DashboardCard
-            title="Analyzed items"
-            description="Confirmed item records persist in Supabase — not mock storage."
-            action={
-              <Link to="/app/scan" className="text-xs uppercase tracking-[0.16em] text-lime-200">
-                Add item
-              </Link>
-            }
-          >
-            {itemsQuery.loading ? <LoadingState label="Loading items" /> : null}
+          <div className="mt-4">
+            {itemsQuery.loading ? <LoadingState label="Loading your items" /> : null}
             {itemsQuery.error ? <ErrorState message={itemsQuery.error} /> : null}
-            {!itemsQuery.loading && !itemsQuery.error && items.length === 0 ? (
-              <EmptyState message="No items yet — start with a scan." />
-            ) : null}
-            <ul className="space-y-2">
-              {items.slice(0, 5).map((item) => (
-                <li key={item.id} className="flex items-center justify-between gap-3 border-b border-white/8 pb-2 text-sm">
-                  <span>
-                    {item.item_type}
-                    <span className="ml-2 text-white/40">{item.category}</span>
-                  </span>
-                  <span className="text-[10px] uppercase tracking-[0.16em] text-white/40">{item.status}</span>
-                </li>
-              ))}
-            </ul>
-          </DashboardCard>
 
-          <DashboardCard
-            title="Rehoming activity"
-            description="Ranked supply-to-demand matches with the reasons they were recommended."
-            action={
-              <Link to="/app/matches">
-                <GlowButton variant="ghost">
-                  Open matches
-                  <ArrowRight className="h-4 w-4" />
-                </GlowButton>
-              </Link>
-            }
-          >
-            {matchesQuery.loading ? <LoadingState label="Loading matches" /> : null}
-            {matchesQuery.error ? <ErrorState message={matchesQuery.error} /> : null}
-            {!matchesQuery.loading && !matchesQuery.error && matches.length === 0 ? (
-              <div className="flex items-center gap-3 text-sm text-white/50">
-                <HeartHandshake className="h-4 w-4 text-lime-300" />
-                No matches yet. Listed items are scored against open requirements.
-              </div>
-            ) : null}
-            {topMatch ? (
-              <p className="text-sm text-white/60">
-                {Math.round(Number(topMatch.match_score))}% · {topMatch.item?.item_type} →{" "}
-                {topMatch.requirement?.organization?.name ?? "organization"}
+            {!itemsQuery.loading && !itemsQuery.error && inMotion.length === 0 ? (
+              <p className="border-t border-white/6 pt-6 text-sm leading-relaxed text-white/35">
+                Nothing in motion yet. Your first scan starts here.
               </p>
-            ) : null}
-          </DashboardCard>
-
-          <DashboardCard title="Impact preview" description="Confirmed outcomes are recorded only after a later handoff phase.">
-            <p className="text-sm text-white/50">
-              Listed items are real. Impact totals stay empty until a handoff is confirmed.
-            </p>
-          </DashboardCard>
+            ) : (
+              <ul className="border-t border-white/6">
+                {inMotion.map((item) => (
+                  <ItemLine key={item.id} item={item} />
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
+
+        {/* IMPACT — only once it is real. */}
+        {impact.unitsRehomed > 0 ? (
+          <div className="mt-14 border-t border-white/8 pt-8">
+            <h2 className="font-display text-lg font-semibold">Given a second life</h2>
+            <p className="mt-4 font-display text-4xl font-bold text-lime-200">
+              {impact.unitsRehomed}
+              <span className="ml-2 align-middle text-base font-medium text-white/45">
+                {impact.unitsRehomed === 1 ? "item" : "items"} confirmed
+              </span>
+            </p>
+            <p className="mt-3 text-sm text-white/50">
+              {impact.byCategory
+                .slice(0, 4)
+                .map((c) => `${c.units} ${c.category.toLowerCase()}`)
+                .join(" · ")}
+              {impact.organizationsSupported > 0
+                ? ` — ${impact.organizationsSupported} organization${impact.organizationsSupported === 1 ? "" : "s"} supported`
+                : ""}
+            </p>
+          </div>
+        ) : null}
       </div>
     </div>
   );

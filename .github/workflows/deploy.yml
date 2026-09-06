@@ -1,0 +1,70 @@
+name: Deploy to GitHub Pages
+
+# The app is a static bundle, so everything it knows is decided here, at build
+# time. Vite inlines each VITE_ variable into the JavaScript it emits; there is
+# no runtime configuration to fall back on. A build that runs without them
+# produces a site that loads and then tells the visitor authentication is not
+# configured, which is why this workflow refuses to publish one.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Repository *variables*, not secrets. Both of these ship inside every
+      # browser bundle by design: the anon key identifies the project and the
+      # data behind it is protected by row-level security. The service-role key
+      # is a different thing entirely and must never appear here.
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+      # Optional: without it the maps draw on OpenStreetMap tiles instead.
+      VITE_GOOGLE_MAPS_API_KEY: ${{ vars.VITE_GOOGLE_MAPS_API_KEY }}
+      # Project Pages serve from https://<user>.github.io/<repo>/, so the asset
+      # URLs need that prefix. Routing itself is hash-based and needs nothing.
+      VITE_BASE_PATH: /${{ github.event.repository.name }}/
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Refuse to publish an unconfigured build
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::error::VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are empty. Set them under Settings -> Secrets and variables -> Actions -> Variables, then re-run this workflow. Without them the published site cannot sign anyone in."
+            exit 1
+          fi
+
+      - run: npm run build
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

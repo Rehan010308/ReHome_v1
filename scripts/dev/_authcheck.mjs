@@ -1,0 +1,15 @@
+import { chromium } from 'playwright';
+const BASE = process.env.BASE || 'http://localhost:5190';
+const browser = await chromium.launch();
+const page = await (await browser.newContext()).newPage();
+await page.goto(BASE + '/#/login');
+await page.waitForTimeout(2500);
+const text = await page.locator('body').innerText();
+console.log('banner present:', /Authentication is not configured/i.test(text));
+console.log('configured flag in page:', await page.evaluate(() => Boolean(document.querySelector('input[type=password]'))));
+await page.getByRole('textbox', { name: 'Email' }).fill('rehome.household.test1@gmail.com');
+await page.getByRole('textbox', { name: 'Password' }).fill('rehome-test-1234');
+await page.getByRole('button', { name: 'Sign in' }).click();
+await page.waitForTimeout(7000);
+console.log('url after sign in:', page.url());
+await browser.close();

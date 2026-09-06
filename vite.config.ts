@@ -3,6 +3,10 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig({
+  // Project Pages serve the app from /<repo>/ rather than the domain root, so
+  // the emitted asset URLs need that prefix. Every other host serves from the
+  // root and leaves this unset. Routing is hash-based either way.
+  base: process.env.VITE_BASE_PATH ?? "/",
   plugins: [react()],
   resolve: {
     alias: {

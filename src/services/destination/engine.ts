@@ -76,7 +76,25 @@ export interface DestinationAssessment {
   conditionBand: ConditionBand;
   /** True when the condition is still unconfirmed and the user should check. */
   needsConditionCheck: boolean;
+  /** Set when the item itself — not merely its condition — rules out reuse. */
+  hazard: HazardFinding | null;
   summary: string;
+}
+
+/**
+ * Some objects can never be routed for ordinary reuse or donation, no matter
+ * what state they are in. A pristine car battery is still a car battery.
+ *
+ * `reason` is written for the donor: it says what the constraint is, without
+ * telling anyone to handle a hazard themselves.
+ */
+export interface HazardFinding {
+  kind: "hazardous" | "unsuitable";
+  /** Short name of the class matched, e.g. "battery". */
+  klass: string;
+  reason: string;
+  /** The best tier this item can reach — never higher than recycling. */
+  ceiling: Extract<DestinationTier, "recycling" | "responsible_disposal">;
 }
 
 const norm = (v: string | undefined | null) => (v ?? "").trim().toLowerCase();
@@ -225,6 +243,134 @@ const PROFILES: Array<{ match: RegExp; profile: CategoryProfile }> = [
   },
 ];
 
+/**
+ * Objects whose *identity* — not their condition — rules out ordinary reuse.
+ *
+ * Two kinds are distinguished because they end in different places:
+ *
+ *   hazardous  — the material itself is dangerous to hand to a member of the
+ *                public. It goes to a handler licensed for it.
+ *   unsuitable — safe enough, but no reuse or donation network will take it
+ *                (hygiene, safety recalls, or regulation). Materials recovery
+ *                is the highest honest outcome.
+ *
+ * Patterns are matched against category, subcategory and item type together.
+ * Word boundaries matter here: "oil" must not fire on "oil painting", and
+ * "gas" must not fire on "gas stove", so those read as whole words or with the
+ * qualifier that makes them hazardous.
+ */
+const HAZARD_RULES: Array<{
+  match: RegExp;
+  kind: HazardFinding["kind"];
+  klass: string;
+  reason: string;
+  ceiling: HazardFinding["ceiling"];
+  /** Recipient that overrides the category profile for this class. */
+  recycleRecipient?: string;
+  disposalRecipient?: string;
+}> = [
+  {
+    match: /\b(battery|batteries|power ?bank|li-?ion|lithium|lead[- ]acid|car battery|inverter battery)\b/,
+    kind: "hazardous",
+    klass: "battery",
+    reason:
+      "Batteries can vent, leak or ignite, so they are never passed on for household reuse.",
+    ceiling: "recycling",
+    recycleRecipient: "Authorised battery / scrap recycler",
+    disposalRecipient: "Hazardous-waste handler",
+  },
+  {
+    match: /\b(paint|thinner|solvent|varnish|turpentine|adhesive|glue drum|acid|alkali|bleach|ammonia|chemical|pesticide|insecticide|herbicide|fertili[sz]er|cleaning agent)\b/,
+    kind: "hazardous",
+    klass: "chemical",
+    reason: "Chemical contents must go to a handler licensed to receive them.",
+    ceiling: "responsible_disposal",
+    recycleRecipient: "Licensed chemical recovery",
+    disposalRecipient: "Licensed hazardous-waste handler",
+  },
+  {
+    match: /\b(aerosol|spray can|butane|propane|lpg|gas cylinder|gas canister|cylinder|fuel|petrol|diesel|kerosene|motor oil|engine oil|lubricant|fire ?extinguisher|firework|flare|ammunition)\b/,
+    kind: "hazardous",
+    klass: "pressurised or flammable",
+    reason:
+      "Pressurised and flammable containers are unsafe to transport casually or to hand over.",
+    ceiling: "responsible_disposal",
+    recycleRecipient: "Licensed metal recovery (de-gassed)",
+    disposalRecipient: "Licensed hazardous-waste handler",
+  },
+  {
+    match: /\b(syringe|needle|sharps|scalpel|medical waste|biohazard|blood|used mask|catheter|dressing)\b/,
+    kind: "hazardous",
+    klass: "clinical",
+    reason: "Clinical waste can only be taken by a licensed clinical-waste service.",
+    ceiling: "responsible_disposal",
+    disposalRecipient: "Licensed clinical-waste service",
+  },
+  {
+    match: /\b(medicine|medication|tablet|pill|drug|pharmaceutical|vaccine|inhaler)\b/,
+    kind: "hazardous",
+    klass: "pharmaceutical",
+    reason:
+      "Medicines cannot be redistributed; a pharmacy take-back scheme is the correct route.",
+    ceiling: "responsible_disposal",
+    disposalRecipient: "Pharmacy take-back scheme",
+  },
+  {
+    match: /\b(mercury|thermometer|asbestos|fluorescent tube|cfl|smoke detector|radioactive|toner|ink cartridge)\b/,
+    kind: "hazardous",
+    klass: "regulated material",
+    reason:
+      "This contains a regulated material, so it has to go through a handler equipped for it.",
+    ceiling: "recycling",
+    recycleRecipient: "Certified hazardous-material recycler",
+    disposalRecipient: "Hazardous-waste handler",
+  },
+  {
+    match: /\b(knife|blade|machete|sword|gun|pistol|rifle|weapon|taser|pepper spray)\b/,
+    kind: "hazardous",
+    klass: "weapon or blade",
+    reason: "Bladed and weapon-class items are not routed to donation recipients.",
+    ceiling: "recycling",
+    recycleRecipient: "Licensed scrap-metal merchant",
+    disposalRecipient: "Police / licensed disposal",
+  },
+  {
+    match: /\b(underwear|undergarment|innerwear|lingerie|socks|used nappy|diaper|sanitary|toothbrush|razor|comb|hairbrush)\b/,
+    kind: "unsuitable",
+    klass: "personal hygiene",
+    reason: "Hygiene items are not accepted for reuse by donation recipients.",
+    ceiling: "recycling",
+    recycleRecipient: "Textile / materials recovery",
+  },
+  {
+    match: /\b(car seat|child seat|helmet|cot|crib|smoke alarm|airbag|seat ?belt)\b/,
+    kind: "unsuitable",
+    klass: "safety-critical",
+    reason:
+      "Safety-critical items expire and cannot be certified second-hand, so reuse is not offered.",
+    ceiling: "recycling",
+    recycleRecipient: "Materials recovery",
+  },
+  {
+    match: /\b(food|perishable|opened|expired|leftover|milk|meat|produce)\b/,
+    kind: "unsuitable",
+    klass: "perishable",
+    reason: "Perishable goods cannot be routed through ReHome's reuse network.",
+    ceiling: "responsible_disposal",
+    disposalRecipient: "Composting / general waste",
+  },
+];
+
+/**
+ * Identify an item that cannot be reused whatever its condition. Returns null
+ * for everything else — the reuse-first default is only overridden on an
+ * explicit match, never on a guess.
+ */
+function hazardRuleFor(input: DestinationInput) {
+  const haystack = `${norm(input.category)} ${norm(input.subCategory)} ${norm(input.itemType)}`;
+  return HAZARD_RULES.find((r) => r.match.test(haystack)) ?? null;
+}
+
 function profileFor(input: DestinationInput): CategoryProfile {
   const haystack = `${norm(input.category)} ${norm(input.subCategory)} ${norm(input.itemType)}`;
   return PROFILES.find((p) => p.match.test(haystack))?.profile ?? DEFAULT_PROFILE;
@@ -297,24 +443,45 @@ function rationaleFor(tier: DestinationTier, band: ConditionBand, p: CategoryPro
 
 export function assessDestination(input: DestinationInput): DestinationAssessment {
   const band = conditionBandOf(input.condition);
-  const p = profileFor(input);
+  const base = profileFor(input);
+  const rule = hazardRuleFor(input);
+  const hazard: HazardFinding | null = rule
+    ? { kind: rule.kind, klass: rule.klass, reason: rule.reason, ceiling: rule.ceiling }
+    : null;
+
+  // A hazardous or unsuitable item is routed by what it *is*, not by how well
+  // it works. Reuse and refurbishment are removed as destinations entirely, and
+  // the recipients become handlers equipped for that class of material.
+  const p: CategoryProfile = rule
+    ? {
+        ...base,
+        repairable: false,
+        recyclable: rule.ceiling === "recycling" && base.recyclable,
+        recycleRecipient: rule.recycleRecipient ?? base.recycleRecipient,
+        disposalRecipient: rule.disposalRecipient ?? base.disposalRecipient,
+        reuseLifeDays: 0,
+        refurbLifeDays: 0,
+      }
+    : base;
 
   const options: DestinationOption[] = [
     {
       tier: "direct_reuse",
       label: TIER_LABEL.direct_reuse,
       recipient: p.reuseRecipient,
-      viability: REUSE_VIABILITY[band],
-      rationale: rationaleFor("direct_reuse", band, p),
-      usefulLifeExtensionDays: Math.round(p.reuseLifeDays * REUSE_LIFE_FACTOR[band]),
-      available: true,
+      viability: hazard ? 0 : REUSE_VIABILITY[band],
+      rationale: hazard ? hazard.reason : rationaleFor("direct_reuse", band, p),
+      usefulLifeExtensionDays: hazard ? 0 : Math.round(p.reuseLifeDays * REUSE_LIFE_FACTOR[band]),
+      available: !hazard,
     },
     {
       tier: "refurbishment",
       label: TIER_LABEL.refurbishment,
       recipient: p.refurbRecipient,
       viability: p.repairable ? REFURB_VIABILITY[band] : 0,
-      rationale: rationaleFor("refurbishment", band, p),
+      rationale: hazard
+        ? `Repair does not change what this is — ${hazard.klass} items stay out of the reuse network.`
+        : rationaleFor("refurbishment", band, p),
       usefulLifeExtensionDays: p.repairable ? p.refurbLifeDays : 0,
       available: p.repairable,
     },
@@ -322,8 +489,10 @@ export function assessDestination(input: DestinationInput): DestinationAssessmen
       tier: "recycling",
       label: TIER_LABEL.recycling,
       recipient: p.recycleRecipient,
-      viability: p.recyclable ? RECYCLE_VIABILITY[band] : 0,
-      rationale: rationaleFor("recycling", band, p),
+      viability: p.recyclable ? (hazard ? 88 : RECYCLE_VIABILITY[band]) : 0,
+      rationale: p.recyclable && hazard
+        ? "Materials can still be recovered, through a handler equipped for this class of item."
+        : rationaleFor("recycling", band, p),
       usefulLifeExtensionDays: 0,
       available: p.recyclable,
     },
@@ -331,8 +500,10 @@ export function assessDestination(input: DestinationInput): DestinationAssessmen
       tier: "responsible_disposal",
       label: TIER_LABEL.responsible_disposal,
       recipient: p.disposalRecipient,
-      viability: DISPOSAL_VIABILITY[band],
-      rationale: rationaleFor("responsible_disposal", band, p),
+      viability: hazard ? (p.recyclable ? 60 : 92) : DISPOSAL_VIABILITY[band],
+      rationale: hazard
+        ? "Handled by a service licensed to take it. Do not attempt disposal yourself."
+        : rationaleFor("responsible_disposal", band, p),
       usefulLifeExtensionDays: 0,
       available: true,
     },
@@ -353,13 +524,28 @@ export function assessDestination(input: DestinationInput): DestinationAssessmen
     primary,
     ladder,
     conditionBand: band,
-    needsConditionCheck: band === "unknown",
-    summary: summarise(primary, band, input),
+    // A hazardous item's condition changes nothing about where it goes, so we
+    // do not ask the donor to confirm it.
+    needsConditionCheck: band === "unknown" && !hazard,
+    hazard,
+    summary: summarise(primary, band, input, hazard),
   };
 }
 
-function summarise(primary: DestinationOption, band: ConditionBand, input: DestinationInput): string {
+function summarise(
+  primary: DestinationOption,
+  band: ConditionBand,
+  input: DestinationInput,
+  hazard: HazardFinding | null
+): string {
   const what = input.itemType || "This item";
+
+  if (hazard) {
+    return primary.tier === "recycling"
+      ? `${what} is not suitable for reuse or donation. ${hazard.reason} ReHome routes it to ${primary.recipient.toLowerCase()} instead.`
+      : `${what} is not suitable for reuse or donation. ${hazard.reason} It needs ${primary.recipient.toLowerCase()}.`;
+  }
+
   switch (primary.tier) {
     case "direct_reuse":
       return band === "unknown"

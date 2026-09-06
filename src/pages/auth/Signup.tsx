@@ -6,17 +6,22 @@ import type { AccountType } from "@/lib/profile";
 import { Reveal } from "@/components/system/Reveal";
 import { GlowButton } from "@/components/system/primitives";
 
+/**
+ * Two ways into ReHome, named after who you are rather than what you want.
+ * ReHome decides where an item should go; the account type only says which
+ * side of that decision you sit on.
+ */
 const ROLES = [
   {
     value: "individual" as const,
     icon: User,
-    title: "I have things",
-    body: "Households with items they no longer use.",
+    title: "Household",
+    body: "Scan items you no longer use and rehome them.",
   },
   {
     value: "organization" as const,
     icon: Building2,
-    title: "I need things",
+    title: "Organization",
     body: "Schools, shelters, charities, refurbishers, recyclers.",
   },
 ];

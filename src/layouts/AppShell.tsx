@@ -67,7 +67,7 @@ export const AppShell = () => {
           <div className="ml-auto flex items-center gap-5">
             {profile?.accountType ? (
               <span className="hidden text-[13px] text-white/30 sm:block">
-                {profile.accountType === "organization" ? "Organization" : "Individual"}
+                {profile.accountType === "organization" ? "Organization" : "Household"}
               </span>
             ) : null}
             <button

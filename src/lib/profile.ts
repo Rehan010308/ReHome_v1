@@ -8,8 +8,15 @@ export interface ReHomeProfile {
   name: string;
   accountType: AccountType | null;
   phone?: string | null;
+  /** Human-readable place name, e.g. "Vellore, Tamil Nadu". */
   location?: string | null;
   bio?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  /** Already blurred to the stored precision — never an exact address. */
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export function isAccountType(value: unknown): value is AccountType {

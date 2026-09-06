@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowRight, Plus, ScanLine, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useAsync } from "@/hooks/useAsync";
 import { fetchOwnOrganization } from "@/lib/data/profiles";
@@ -7,6 +7,8 @@ import { listOrgRequirements } from "@/lib/data/catalog";
 import { listOrganizationAllocations } from "@/lib/data/allocations";
 import { AnimatedBackground } from "@/components/system/primitives";
 import { FulfillmentMeter } from "@/components/system/FulfillmentMeter";
+import { QrCode } from "@/components/system/QrCode";
+import { organizationUrl } from "@/services/handoff/codes";
 import { ErrorState, LoadingState } from "@/components/system/DataState";
 
 export default function OrganizationDashboard() {
@@ -22,6 +24,9 @@ export default function OrganizationDashboard() {
   const allocations = allocQuery.data ?? [];
 
   const live = requirements.filter((r) => r.status === "open" || r.status === "partially_fulfilled");
+  const confirmed = allocations.filter((a) => a.status === "confirmed");
+  const unitsReceived = confirmed.reduce((sum, a) => sum + a.quantity_allocated, 0);
+  const contributors = new Set(confirmed.map((a) => a.donor_id)).size;
   // The only thing that needs the organization's attention right now.
   const awaitingConfirmation = allocations.filter(
     (a) => a.status === "handed_over" || a.status === "handoff_scheduled"
@@ -32,8 +37,15 @@ export default function OrganizationDashboard() {
       <AnimatedBackground />
 
       <div className="relative mx-auto max-w-3xl px-4 py-12 md:py-20">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-lime-200/70">
-          {org?.verification_status === "verified" ? "Verified organization" : "Organization"}
+        <p className="rh-mono inline-flex items-center gap-2 text-[10px] tracking-[0.3em] text-lime-200/70">
+          {org?.verification_status === "verified" ? (
+            <>
+              <ShieldCheck className="h-3 w-3" />
+              VERIFIED ORGANIZATION
+            </>
+          ) : (
+            "ORGANIZATION"
+          )}
         </p>
         <h1 className="mt-4 font-display text-4xl md:text-5xl font-bold leading-[1.03] tracking-tight">
           {org?.name ?? profile?.name}
@@ -53,6 +65,14 @@ export default function OrganizationDashboard() {
           >
             <Plus className="h-4 w-4" />
             Post what you need
+          </Link>
+
+          <Link
+            to="/app/verify"
+            className="inline-flex items-center gap-2.5 rounded-full border border-white/12 px-6 py-4 text-sm font-semibold uppercase tracking-[0.14em] text-white/75 transition-colors hover:border-white/30 hover:text-white"
+          >
+            <ScanLine className="h-4 w-4" />
+            Scan a handoff
           </Link>
 
           {awaitingConfirmation.length > 0 ? (
@@ -107,6 +127,89 @@ export default function OrganizationDashboard() {
             )}
           </div>
         </div>
+
+        {/* ── WHAT ACTUALLY ARRIVED ──────────────────────────────────
+            Confirmed receipts only. A committed allocation is a promise, and
+            counting promises as arrivals is how a fulfilment number starts
+            lying. */}
+        <div className="mt-16">
+          <h2 className="font-display text-lg font-semibold">Received and in use</h2>
+          <div className="mt-4">
+            {allocQuery.loading ? <LoadingState label="Loading contributions" /> : null}
+            {allocQuery.error ? <ErrorState message={allocQuery.error} /> : null}
+            {!allocQuery.loading && confirmed.length === 0 ? (
+              <p className="border-t border-white/6 pt-6 text-sm leading-relaxed text-white/35">
+                Nothing confirmed received yet. Scan a donor's handoff code to confirm what
+                actually arrives.
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-baseline gap-x-12 gap-y-4 border-t border-white/6 pt-6">
+                  <div>
+                    <p className="font-display text-[2.2rem] font-bold leading-none text-lime-200">
+                      {unitsReceived}
+                    </p>
+                    <p className="mt-2 text-[13px] text-white/45">units received</p>
+                  </div>
+                  <div>
+                    <p className="font-display text-[1.6rem] font-semibold leading-none text-white/85">
+                      {confirmed.length}
+                    </p>
+                    <p className="mt-2 text-[13px] text-white/45">completed handoffs</p>
+                  </div>
+                  <div>
+                    <p className="font-display text-[1.6rem] font-semibold leading-none text-white/85">
+                      {contributors}
+                    </p>
+                    <p className="mt-2 text-[13px] text-white/45">
+                      {contributors === 1 ? "contributor" : "contributors"}
+                    </p>
+                  </div>
+                </div>
+
+                <ul className="mt-7 divide-y divide-white/[0.06] border-t border-white/[0.06]">
+                  {confirmed.slice(0, 8).map((row) => (
+                    <li key={row.id} className="flex items-center gap-4 py-3.5">
+                      <span className="min-w-0 flex-1 truncate text-[15px] text-white/85">
+                        {row.item?.item_type ?? "Item"}
+                        <span className="ml-2 text-white/35">×{row.quantity_allocated}</span>
+                      </span>
+                      <span className="shrink-0 text-[13px] text-white/35">
+                        for {row.requirement?.item_type}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ── DESTINATION CODE ───────────────────────────────────────── */}
+        {org ? (
+          <div className="mt-16 flex flex-wrap items-center gap-7 border-t border-white/[0.07] pt-9">
+            <QrCode
+              value={organizationUrl(org.id)}
+              size={132}
+              label={`ReHome destination code for ${org.name}`}
+            />
+            <div className="min-w-0">
+              <p className="rh-mono text-[10px] tracking-[0.24em] text-white/35">
+                REHOME DESTINATION CODE
+              </p>
+              <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-white/40">
+                Print this at your collection point. A donor scanning it sees who you are, your
+                verification status and what you currently accept — before they travel.
+              </p>
+              <Link
+                to={`/app/destination/${org.id}`}
+                className="mt-3 inline-block text-[13px] text-lime-300/90 hover:text-lime-200"
+              >
+                Preview the page it opens
+              </Link>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

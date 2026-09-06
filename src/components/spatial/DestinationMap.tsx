@@ -39,76 +39,203 @@ function bearing(from: Coordinates, to: Coordinates): number {
   return (Math.atan2(y, x) * 180) / Math.PI;
 }
 
+/* ── Route geometry ─────────────────────────────────────────────────────────
+ * One set of numbers drives the path, the markers and the labels, so nothing
+ * can drift out of alignment. The three stops sit on the curve by construction:
+ * ORIGIN and DEST are its endpoints and HUB is the join between its two cubic
+ * segments, which is exactly on the curve.
+ */
+const ORIGIN = { x: 58, y: 172 };
+const HUB = { x: 200, y: 132 };
+const DEST = { x: 330, y: 94 };
+
+const ROUTE_PATH =
+  `M ${ORIGIN.x} ${ORIGIN.y} ` +
+  `C 100 174, 152 142, ${HUB.x} ${HUB.y} ` +
+  `C 246 122, 290 100, ${DEST.x} ${DEST.y}`;
+
+/** Horizon of the perspective floor — everything above it is sky. */
+const HORIZON = 62;
+/** Where the floor's parallel lines converge. */
+const VANISHING = { x: 200, y: HORIZON };
+
+/**
+ * Floor lines, spaced so they crowd toward the horizon. A linear spacing reads
+ * as a flat grid seen head-on; this reads as ground receding away from you,
+ * which is what makes the route look like a journey rather than a diagram.
+ */
+const FLOOR_ROWS = Array.from({ length: 7 }, (_, i) => {
+  const t = (i + 1) / 7;
+  return HORIZON + (220 - HORIZON) * t ** 2.1;
+});
+
+const FLOOR_COLUMNS = Array.from({ length: 13 }, (_, i) => -280 + i * 80);
+
+/** Long organization names would run off the frame; the footer carries the full one. */
+function shortLabel(label: string, max = 20): string {
+  const clean = label.trim();
+  return clean.length <= max ? clean : `${clean.slice(0, max - 1).trimEnd()}…`;
+}
+
+const Stop = ({
+  at,
+  label,
+  tone,
+  size,
+}: {
+  at: { x: number; y: number };
+  label: string;
+  tone: "origin" | "hub" | "dest";
+  size: number;
+}) => {
+  const fill = tone === "dest" ? "#a3e635" : tone === "hub" ? "#bef264" : "#7ce7b0";
+  const text = shortLabel(label);
+  // Roughly half the rendered width, so the label can be nudged back inside.
+  const halfWidth = text.length * 2.9;
+  const labelX = Math.min(Math.max(at.x, halfWidth + 4), 396 - halfWidth);
+  return (
+    <g>
+      <circle cx={at.x} cy={at.y} r={size * 4.5} fill="url(#rh-halo)" />
+      {tone === "dest" ? (
+        <circle
+          cx={at.x}
+          cy={at.y}
+          r={size * 2.2}
+          fill="none"
+          stroke="#a3e635"
+          strokeOpacity="0.35"
+          strokeWidth="1.25"
+          className="rh-route-ping"
+        />
+      ) : null}
+      <circle cx={at.x} cy={at.y} r={size} fill={fill} />
+      <text
+        x={labelX}
+        y={at.y + size + 17}
+        textAnchor="middle"
+        fill={tone === "hub" ? "rgba(255,255,255,0.38)" : "rgba(255,255,255,0.55)"}
+        fontSize="10.5"
+        letterSpacing="0.06em"
+      >
+        {text}
+      </text>
+    </g>
+  );
+};
+
 /** Real geometry, drawn. Not a stand-in for a map — a diagram of what we know. */
-function RouteDiagram({ from, to, km }: { from: Coordinates | null; to: Coordinates; km: number | null }) {
-  const angle = from ? bearing(from, to) : 0;
+function RouteDiagram({
+  from,
+  to,
+  km,
+  originLabel,
+  destinationLabel,
+}: {
+  from: Coordinates | null;
+  to: Coordinates;
+  km: number | null;
+  originLabel: string;
+  destinationLabel: string;
+}) {
+  const angle = from ? bearing(from, to) : null;
 
   return (
     <svg viewBox="0 0 400 220" className="h-full w-full" role="img" aria-label="Route overview">
       <defs>
-        <linearGradient id="rh-route" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#7ce7b0" stopOpacity="0.15" />
-          <stop offset="55%" stopColor="#a3e635" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="#a3e635" stopOpacity="0.35" />
+        <linearGradient id="rh-route" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stopColor="#7ce7b0" stopOpacity="0.55" />
+          <stop offset="55%" stopColor="#a3e635" stopOpacity="0.95" />
+          <stop offset="100%" stopColor="#a3e635" stopOpacity="0.7" />
         </linearGradient>
         <radialGradient id="rh-halo">
-          <stop offset="0%" stopColor="#a3e635" stopOpacity="0.35" />
+          <stop offset="0%" stopColor="#a3e635" stopOpacity="0.32" />
           <stop offset="100%" stopColor="#a3e635" stopOpacity="0" />
         </radialGradient>
+        {/* The floor fades out toward the horizon rather than stopping at a line. */}
+        <linearGradient id="rh-floor-fade" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#000" />
+          <stop offset="45%" stopColor="#9a9a9a" />
+          <stop offset="100%" stopColor="#fff" />
+        </linearGradient>
+        <linearGradient id="rh-floor-edge" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#000" />
+          <stop offset="22%" stopColor="#fff" />
+          <stop offset="78%" stopColor="#fff" />
+          <stop offset="100%" stopColor="#000" />
+        </linearGradient>
+        <mask id="rh-floor-mask">
+          <rect x="0" y={HORIZON} width="400" height={220 - HORIZON} fill="url(#rh-floor-fade)" />
+        </mask>
+        <mask id="rh-floor-edge-mask">
+          <rect x="0" y="0" width="400" height="220" fill="url(#rh-floor-edge)" />
+        </mask>
       </defs>
 
-      {/* Ground grid, fading toward the horizon. */}
-      {Array.from({ length: 7 }).map((_, i) => (
-        <line
-          key={`h${i}`}
-          x1="0" x2="400"
-          y1={70 + i * 25} y2={70 + i * 25}
-          stroke="rgba(190,255,220,0.07)"
-          strokeWidth="1"
-        />
-      ))}
-      {Array.from({ length: 9 }).map((_, i) => (
-        <line
-          key={`v${i}`}
-          x1={i * 50} x2={i * 50}
-          y1="70" y2="220"
-          stroke="rgba(190,255,220,0.05)"
-          strokeWidth="1"
-        />
-      ))}
+      {/* Perspective floor, converging on a single vanishing point. */}
+      <g mask="url(#rh-floor-mask)">
+        <g mask="url(#rh-floor-edge-mask)">
+        {FLOOR_ROWS.map((y) => (
+          <line
+            key={`h${y}`}
+            x1="0"
+            x2="400"
+            y1={y}
+            y2={y}
+            stroke="rgba(190,255,220,0.09)"
+            strokeWidth="1"
+          />
+        ))}
+        {FLOOR_COLUMNS.map((x) => (
+          <line
+            key={`v${x}`}
+            x1={x}
+            y1="220"
+            x2={VANISHING.x}
+            y2={VANISHING.y}
+            stroke="rgba(190,255,220,0.07)"
+            strokeWidth="1"
+          />
+        ))}
+        </g>
+      </g>
 
+      {/* The route: a dim rail underneath, the lit line drawing along it. */}
       <path
-        d="M 70 165 Q 200 60 330 120"
+        id="rh-route-path"
+        d={ROUTE_PATH}
         fill="none"
-        stroke="url(#rh-route)"
-        strokeWidth="2"
+        stroke="rgba(163,230,53,0.16)"
+        strokeWidth="2.5"
         strokeLinecap="round"
       />
+      <path
+        d={ROUTE_PATH}
+        fill="none"
+        stroke="url(#rh-route)"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        className="rh-route-draw"
+      />
 
-      {from ? (
-        <>
-          <circle cx="70" cy="165" r="26" fill="url(#rh-halo)" />
-          <circle cx="70" cy="165" r="4.5" fill="#7ce7b0" />
-          <text x="70" y="192" textAnchor="middle" fill="rgba(255,255,255,0.45)" fontSize="11">
-            You
-          </text>
-        </>
-      ) : null}
+      {/* One vehicle along the route, following the same path the line drew. */}
+      <circle r="3" fill="#eaffc3" className="rh-route-vehicle">
+        <animateMotion dur="5.2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" calcMode="spline" keySplines="0.45 0 0.25 1">
+          <mpath href="#rh-route-path" />
+        </animateMotion>
+      </circle>
 
-      <circle cx="330" cy="120" r="30" fill="url(#rh-halo)" />
-      <circle cx="330" cy="120" r="6" fill="#a3e635" />
-      <circle cx="330" cy="120" r="13" fill="none" stroke="#a3e635" strokeOpacity="0.4" strokeWidth="1.5" />
-      <text x="330" y="150" textAnchor="middle" fill="rgba(255,255,255,0.55)" fontSize="11">
-        Destination
-      </text>
+      {from ? <Stop at={ORIGIN} label={originLabel} tone="origin" size={4.5} /> : null}
+      <Stop at={HUB} label="ReHome" tone="hub" size={3} />
+      <Stop at={DEST} label={destinationLabel} tone="dest" size={5.5} />
 
       {km !== null && from ? (
-        <g transform="translate(200, 92)">
+        <g transform="translate(200, 78)">
           <text textAnchor="middle" fill="#a3e635" fontSize="15" fontWeight="600">
             {formatDistance(km)?.replace(" away", "")}
           </text>
-          <text y="16" textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="10">
-            bearing {Math.round((angle + 360) % 360)}°
+          <text y="15" textAnchor="middle" fill="rgba(255,255,255,0.32)" fontSize="9.5">
+            {travelEstimate(km)}
+            {angle !== null ? ` · bearing ${Math.round((angle + 360) % 360)}°` : ""}
           </text>
         </g>
       ) : null}
@@ -120,11 +247,14 @@ export function DestinationMap({
   destination,
   origin,
   organizationName,
+  originName,
   className = "",
 }: {
   destination: { latitude: number | null; longitude: number | null };
   origin?: { latitude: number | null; longitude: number | null } | null;
   organizationName: string;
+  /** The donor's own place name, shown so the route names both of its ends. */
+  originName?: string | null;
   className?: string;
 }) {
   const to = coordsOf(destination);
@@ -186,7 +316,13 @@ export function DestinationMap({
             style={{ filter: "saturate(0.75) contrast(1.05) brightness(0.82)" }}
           />
         ) : (
-          <RouteDiagram from={from} to={to} km={km} />
+          <RouteDiagram
+            from={from}
+            to={to}
+            km={km}
+            originLabel={originName ?? "You"}
+            destinationLabel={organizationName}
+          />
         )}
 
         {/* ReHome frame over the top, so the map sits inside the product. */}
@@ -203,6 +339,7 @@ export function DestinationMap({
         <p className="inline-flex items-center gap-2 text-[15px] text-white/85">
           <MapPin className="h-4 w-4 text-lime-300" />
           {organizationName}
+          {originName ? <span className="text-[13px] text-white/35">from {originName}</span> : null}
         </p>
         {km !== null ? (
           <p className="inline-flex items-center gap-2 text-[13px] text-white/45">
@@ -211,7 +348,9 @@ export function DestinationMap({
             <span className="text-white/25">estimated</span>
           </p>
         ) : (
-          <p className="text-[13px] text-white/35">Add a location to see distance</p>
+          <p className="text-[13px] text-white/35">
+            Share a location to see the distance and journey.
+          </p>
         )}
       </div>
     </div>

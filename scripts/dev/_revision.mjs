@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await (await browser.newContext({ viewport:{width:1280,height:1000} })).newPage();
+await page.goto('http://localhost:5190/#/');
+await page.waitForTimeout(4000);
+await page.evaluate(() => window.scrollTo(0, window.innerHeight * 2.2));
+await page.waitForTimeout(4000);
+const t = await page.locator('body').innerText();
+const i = t.indexOf('Analysis Result');
+console.log(t.slice(i, i + 420).replace(/\n+/g, ' | '));
+await browser.close();

@@ -11,6 +11,11 @@ export function profileRowToApp(row: ProfileRow, fallbackEmail = ""): ReHomeProf
     phone: row.phone,
     location: row.location,
     bio: row.bio,
+    city: row.city,
+    region: row.region,
+    country: row.country,
+    latitude: row.latitude,
+    longitude: row.longitude,
   };
 }
 
@@ -54,7 +59,11 @@ export async function ensureProfile(input: {
 export async function updateProfile(
   userId: string,
   patch: Partial<
-    Pick<ProfileRow, "display_name" | "phone" | "location" | "bio" | "account_type" | "email" | "city" | "region" | "country">
+    Pick<
+      ProfileRow,
+      | "display_name" | "phone" | "location" | "bio" | "account_type" | "email"
+      | "city" | "region" | "country" | "latitude" | "longitude" | "location_precision"
+    >
   >
 ): Promise<ProfileRow> {
   const clean = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
@@ -127,4 +136,14 @@ export async function listVisibleOrganizations(): Promise<OrganizationRow[]> {
     .order("name");
   if (error) throw error;
   return (data ?? []) as OrganizationRow[];
+}
+
+export async function fetchOrganizationById(id: string): Promise<OrganizationRow | null> {
+  const { data, error } = await requireSupabase()
+    .from("organizations")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as OrganizationRow | null) ?? null;
 }

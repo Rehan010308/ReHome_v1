@@ -71,3 +71,19 @@ export async function listRequirementContributions(
   if (error) throw error;
   return (data ?? []) as MatchAllocationRow[];
 }
+
+/**
+ * One allocation, with the context needed to verify a handoff at the counter.
+ * RLS decides what comes back: a person who is neither the donor nor the
+ * receiving organization gets nothing, so a photographed QR code on its own
+ * reveals nothing about anybody.
+ */
+export async function fetchAllocationById(id: string): Promise<AllocationWithContext | null> {
+  const { data, error } = await requireSupabase()
+    .from("match_allocations")
+    .select(CONTEXT)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as unknown as AllocationWithContext | null) ?? null;
+}

@@ -34,3 +34,9 @@ ios/
 
 # Supabase CLI cache
 supabase/.temp/
+
+# Screenshots produced by the dev test scripts — evidence, not source
+/shot-*.png
+/camera-*.png
+/cc-new.png
+.playwright-mcp/

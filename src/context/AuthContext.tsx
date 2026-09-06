@@ -16,6 +16,25 @@ import {
   type ReHomeProfile,
 } from "@/lib/profile";
 import { ensureOrganization, ensureProfile, fetchProfile, profileRowToApp, updateProfile } from "@/lib/data/profiles";
+import type { LocationPrecision } from "@/services/geo";
+
+/**
+ * Coordinates are accepted here so a location shared once — during a scan, say —
+ * is remembered on the profile and carries through matching, destinations and
+ * handoff without the user being asked for it again.
+ */
+export interface ProfileDetailsPatch {
+  name?: string;
+  phone?: string;
+  location?: string;
+  bio?: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  latitude?: number;
+  longitude?: number;
+  locationPrecision?: LocationPrecision;
+}
 
 interface SignUpInput {
   name: string;
@@ -37,15 +56,7 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
   setAccountType: (accountType: AccountType) => Promise<void>;
   updateName: (name: string) => Promise<void>;
-  updateProfileDetails: (patch: {
-    name?: string;
-    phone?: string;
-    location?: string;
-    bio?: string;
-    city?: string;
-    region?: string;
-    country?: string;
-  }) => Promise<void>;
+  updateProfileDetails: (patch: ProfileDetailsPatch) => Promise<void>;
   clearError: () => void;
 }
 
@@ -237,15 +248,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [hydrateProfile]);
 
   const updateProfileDetails = useCallback(
-    async (patch: {
-      name?: string;
-      phone?: string;
-      location?: string;
-      bio?: string;
-      city?: string;
-      region?: string;
-      country?: string;
-    }) => {
+    async (patch: ProfileDetailsPatch) => {
       if (!supabase) throw new Error("Supabase is not configured.");
       const current = (await supabase.auth.getUser()).data.user;
       if (!current) throw new Error("You need to be signed in.");
@@ -259,6 +262,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           city: patch.city,
           region: patch.region,
           country: patch.country,
+          latitude: patch.latitude,
+          longitude: patch.longitude,
+          location_precision: patch.locationPrecision,
         });
         if (patch.name) {
           await supabase.auth.updateUser({ data: { full_name: patch.name.trim() } });

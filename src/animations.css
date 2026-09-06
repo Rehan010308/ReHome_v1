@@ -295,3 +295,66 @@
     transform: none;
   }
 }
+/* ── Destination route diagram ────────────────── */
+/* The lit line draws itself along the route once, then the marker at the
+   destination breathes. Nothing loops except the vehicle and that ring, so the
+   surface settles instead of fidgeting. */
+.rh-route-draw {
+  stroke-dasharray: 360;
+  stroke-dashoffset: 360;
+  animation: rhRouteDraw 1.5s cubic-bezier(0.33, 0.9, 0.28, 1) 0.15s forwards;
+}
+
+@keyframes rhRouteDraw {
+  to { stroke-dashoffset: 0; }
+}
+
+.rh-route-vehicle {
+  opacity: 0;
+  animation: rhRouteVehicleIn 0.6s ease-out 1.5s forwards;
+  filter: drop-shadow(0 0 5px rgba(163, 230, 53, 0.85));
+}
+
+@keyframes rhRouteVehicleIn {
+  to { opacity: 1; }
+}
+
+.rh-route-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rhRoutePing 3.2s ease-out 1.4s infinite;
+}
+
+@keyframes rhRoutePing {
+  0%       { transform: scale(0.72); opacity: 0.75; }
+  60%      { transform: scale(1.5);  opacity: 0; }
+  100%     { transform: scale(1.5);  opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rh-route-draw,
+  .rh-route-vehicle,
+  .rh-route-ping {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  .rh-route-vehicle { opacity: 0; }
+}
+
+/* Destination pin pulse on the journey map — one slow ring, not a strobe. */
+.rh-journey-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rhJourneyPulse 3.4s ease-out infinite;
+}
+
+@keyframes rhJourneyPulse {
+  0%   { transform: scale(0.65); opacity: 0.85; }
+  70%  { transform: scale(1.5);  opacity: 0; }
+  100% { transform: scale(1.5);  opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rh-journey-pulse { animation: none; }
+}

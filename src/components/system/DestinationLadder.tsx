@@ -101,7 +101,11 @@ export const DestinationLadder = ({ assessment }: { assessment: DestinationAsses
         <span className="h-px w-6 bg-lime-300/40" />
         Reuse-first routing
       </p>
-      {assessment.needsConditionCheck ? (
+      {assessment.hazard ? (
+        <span className="rounded-full border border-amber-300/35 bg-amber-300/12 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-amber-100">
+          {assessment.hazard.kind === "hazardous" ? "Hazardous item" : "Not for reuse"}
+        </span>
+      ) : assessment.needsConditionCheck ? (
         <span className="rounded-full border border-amber-300/25 bg-amber-300/10 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-amber-100/85">
           Confirm condition
         </span>
@@ -109,6 +113,16 @@ export const DestinationLadder = ({ assessment }: { assessment: DestinationAsses
     </div>
 
     <p className="mt-4 font-display text-lg leading-snug text-white">{assessment.summary}</p>
+
+    {/* Named explicitly rather than implied by a greyed-out rung: the donor
+        needs to know reuse was ruled out by what the object is. */}
+    {assessment.hazard ? (
+      <p className="mt-4 rounded-[14px] border border-amber-300/20 bg-amber-300/[0.06] px-4 py-3 text-[13px] leading-relaxed text-amber-100/90">
+        Reuse and refurbishment are closed for {assessment.hazard.klass} items. ReHome routes this
+        to {assessment.primary.recipient.toLowerCase()} — hand it over there rather than disposing
+        of it yourself.
+      </p>
+    ) : null}
 
     <ol className="mt-7">
       {assessment.ladder.map((option, i) => (

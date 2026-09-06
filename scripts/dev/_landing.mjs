@@ -1,0 +1,17 @@
+import { chromium } from 'playwright';
+const BASE = 'http://localhost:5190';
+const browser = await chromium.launch();
+const page = await (await browser.newContext({ viewport:{width:1280,height:900} })).newPage();
+const errs = [];
+page.on('console', m => { if (m.type()==='error') errs.push(m.text().slice(0,160)); });
+page.on('pageerror', e => errs.push('PAGEERROR ' + String(e).slice(0,200)));
+await page.goto(BASE + '/#/');
+await page.waitForTimeout(6000);
+await page.evaluate(() => window.scrollTo(0, window.innerHeight * 1.6));
+await page.waitForTimeout(5000);
+const text = await page.locator('body').innerText();
+const i = text.indexOf('ReVision');
+console.log('landing (ReVision section):', text.slice(i, i + 600).replace(/\n+/g, ' | '));
+console.log('canvas count:', await page.locator('canvas').count());
+console.log('errors:', errs.length ? [...new Set(errs)].join('\n') : 'none');
+await browser.close();

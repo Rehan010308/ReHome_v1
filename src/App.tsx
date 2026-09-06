@@ -1,5 +1,6 @@
 import { HashRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/context/AuthContext";
+import { RehomingSessionProvider } from "@/context/SessionContext";
 import { GuestOnly, ProtectedRoute, RequireAccountType } from "@/components/auth/guards";
 import { MarketingLayout } from "@/layouts/MarketingLayout";
 import { AppShell } from "@/layouts/AppShell";
@@ -19,6 +20,10 @@ import Requirements from "@/pages/app/Requirements";
 import Matches from "@/pages/app/Matches";
 import Handoffs from "@/pages/app/Handoffs";
 import Impact from "@/pages/app/Impact";
+import VerifyHandoff from "@/pages/app/VerifyHandoff";
+import ItemLifecycle from "@/pages/app/ItemLifecycle";
+import DestinationProfile from "@/pages/app/DestinationProfile";
+import ImpactReceipt from "@/pages/app/ImpactReceipt";
 
 /**
  * HashRouter is used so the app can be served from GitHub Pages
@@ -26,6 +31,7 @@ import Impact from "@/pages/app/Impact";
  */
 const App = () => (
   <AuthProvider>
+    <RehomingSessionProvider>
     <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route element={<MarketingLayout />}>
@@ -108,6 +114,13 @@ const App = () => (
               </RequireAccountType>
             }
           />
+          {/* Opened by scanning a ReHome code. Each one is a pointer: the
+              database still decides what the reader may see. */}
+          <Route path="/app/verify" element={<VerifyHandoff />} />
+          <Route path="/app/verify/:allocationId" element={<VerifyHandoff />} />
+          <Route path="/app/item/:itemId" element={<ItemLifecycle />} />
+          <Route path="/app/destination/:organizationId" element={<DestinationProfile />} />
+          <Route path="/app/receipt/:allocationId" element={<ImpactReceipt />} />
           <Route path="/app/profile" element={<ProfilePage />} />
           <Route path="/app/settings" element={<SettingsPage />} />
         </Route>
@@ -117,6 +130,7 @@ const App = () => (
         </Route>
       </Routes>
     </HashRouter>
+    </RehomingSessionProvider>
   </AuthProvider>
 );
 

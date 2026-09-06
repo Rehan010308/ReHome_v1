@@ -41,7 +41,7 @@ export default function AccountType() {
             }`}
           >
             <User className="h-6 w-6 text-lime-300" />
-            <p className="mt-4 font-display text-xl font-semibold">Individual</p>
+            <p className="mt-4 font-display text-xl font-semibold">Household</p>
             <p className="mt-2 text-sm text-white/50">Scan items, track rehoming activity, and view impact.</p>
           </button>
           <button

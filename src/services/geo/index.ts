@@ -7,10 +7,10 @@
  * computing distance locally when a server round-trip isn't warranted or
  * PostGIS is unavailable.
  *
- * No external geocoding provider is required for the system to function. One
- * can be layered on later behind resolveLocality(); until then the app degrades
- * to coordinates plus whatever locality text the user supplies, rather than
- * breaking or inventing place names.
+ * No external geocoding provider is required for the system to function.
+ * resolveLocality() uses a keyless reverse-geocoder to turn a coordinate into a
+ * place name, and when it cannot answer the app degrades to the coordinates it
+ * actually holds, rather than breaking or inventing place names.
  */
 
 export interface Coordinates {
@@ -111,10 +111,93 @@ export async function requestPosition(timeoutMs = 10_000): Promise<Coordinates> 
 }
 
 /**
- * Seam for a future geocoding provider. Returning null is a valid answer and
- * callers must handle it — the product never blocks on a third-party lookup,
- * and any provider key would live server-side, never in VITE_ env vars.
+ * What the browser will do if we ask for a position right now.
+ *
+ * Lets a caller tell three cases apart without triggering a prompt: already
+ * granted (ask silently), not yet decided (asking is reasonable, and the
+ * browser shows its own dialog), and refused (do not ask again — fall back and
+ * say so). Browsers without the Permissions API report "prompt", which is the
+ * safe assumption.
  */
-export async function resolveLocality(_c: Coordinates): Promise<string | null> {
-  return null;
+export async function geolocationPermission(): Promise<"granted" | "prompt" | "denied"> {
+  try {
+    if (typeof navigator === "undefined" || !navigator.permissions?.query) return "prompt";
+    const status = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+    return status.state as "granted" | "prompt" | "denied";
+  } catch {
+    return "prompt";
+  }
+}
+
+/** A place name for a coordinate, as reported by a real geocoder. */
+export interface Locality {
+  /** What to show the user, e.g. "Vellore, Tamil Nadu". */
+  label: string;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+}
+
+/**
+ * Coordinates, written the way a person reads them. This is the honest
+ * fallback when no geocoder answers: it is still the user's actual location,
+ * just expressed as the numbers we genuinely hold, rather than a place name we
+ * would be inventing.
+ */
+export function formatCoordinates(c: Coordinates): string {
+  const lat = `${Math.abs(c.latitude).toFixed(2)}°${c.latitude >= 0 ? "N" : "S"}`;
+  const lon = `${Math.abs(c.longitude).toFixed(2)}°${c.longitude >= 0 ? "E" : "W"}`;
+  return `${lat}, ${lon}`;
+}
+
+/**
+ * Reverse geocoding, via BigDataCloud's client-side endpoint.
+ *
+ * Chosen because it needs no key: nothing secret is shipped to the browser,
+ * which is the constraint that kept this a stub before. Only the already
+ * blurred coordinate is sent, never an exact position.
+ *
+ * Returning null is a valid answer and every caller must handle it — the
+ * product never blocks on a third-party lookup, and it never invents a place
+ * name when the lookup fails.
+ */
+export async function resolveLocality(
+  c: Coordinates,
+  timeoutMs = 6_000
+): Promise<Locality | null> {
+  if (typeof fetch === "undefined") return null;
+
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  try {
+    const url =
+      "https://api.bigdatacloud.net/data/reverse-geocode-client" +
+      `?latitude=${encodeURIComponent(c.latitude)}` +
+      `&longitude=${encodeURIComponent(c.longitude)}` +
+      "&localityLanguage=en";
+
+    const response = await fetch(url, { signal: controller?.signal });
+    if (!response.ok) return null;
+
+    const body = (await response.json()) as {
+      city?: string;
+      locality?: string;
+      principalSubdivision?: string;
+      countryName?: string;
+    };
+
+    const city = (body.city || body.locality || "").trim() || null;
+    const region = (body.principalSubdivision ?? "").trim() || null;
+    const country = (body.countryName ?? "").trim() || null;
+
+    const label = [city, region].filter(Boolean).join(", ") || country;
+    if (!label) return null;
+
+    return { label, city, region, country };
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

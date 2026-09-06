@@ -128,3 +128,17 @@ export async function closeRequirement(id: string): Promise<void> {
     .eq("id", id);
   if (error) throw error;
 }
+
+/**
+ * A single item, for the lifecycle view behind an item QR. Returns null when
+ * the reader is not entitled to it — RLS, not this function, is the gate.
+ */
+export async function fetchItemById(id: string): Promise<ItemRow | null> {
+  const { data, error } = await requireSupabase()
+    .from("items")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as ItemRow | null) ?? null;
+}

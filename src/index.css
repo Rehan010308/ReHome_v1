@@ -211,3 +211,198 @@
     color: #f2fff0;
   }
 }
+
+@layer components {
+  /*
+   * ── ReHome Intelligence surface ───────────────────────────────────────────
+   *
+   * An instrument panel, not a stage set. The 3D language belongs to the
+   * pre-login sections; this is deliberately flat, measured and quiet, and
+   * every moving part is tied to real state: the beam only quickens while an
+   * analysis is running, and the brackets only close once a reading settles.
+   */
+  .rh-surface-panel {
+    border-radius: 26px;
+    background:
+      radial-gradient(120% 90% at 50% -20%, rgba(30, 92, 70, 0.22), transparent 62%),
+      linear-gradient(180deg, rgba(9, 16, 21, 0.96), rgba(4, 8, 13, 0.96));
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-top-color: rgba(255, 255, 255, 0.1);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 50px 120px -60px rgba(0, 0, 0, 0.95);
+    isolation: isolate;
+  }
+
+  .rh-mono {
+    font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* One soft source, drifting. Slow enough to read as light, not as motion. */
+  .rh-lightfield {
+    position: absolute;
+    inset: -30% -10% auto -10%;
+    height: 150%;
+    pointer-events: none;
+    background: radial-gradient(38% 46% at 30% 40%, rgba(120, 220, 170, 0.13), transparent 70%);
+    animation: rhLightDrift 26s ease-in-out infinite;
+    z-index: 0;
+  }
+
+  @keyframes rhLightDrift {
+    0%, 100% { transform: translate3d(-4%, 0, 0) scale(1); }
+    50%      { transform: translate3d(10%, 3%, 0) scale(1.1); }
+  }
+
+  /* Measurement matrix: a dot grid, close to invisible until it catches light. */
+  .rh-matrix {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: radial-gradient(circle at center, rgba(190, 255, 220, 0.16) 0.6px, transparent 0.6px);
+    background-size: 22px 22px;
+    opacity: 0.32;
+    mask-image: radial-gradient(120% 100% at 50% 30%, black 20%, transparent 78%);
+    -webkit-mask-image: radial-gradient(120% 100% at 50% 30%, black 20%, transparent 78%);
+    z-index: 0;
+  }
+
+  .rh-grain {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    opacity: 0.035;
+    mix-blend-mode: overlay;
+    z-index: 0;
+  }
+
+  /* The beam. 14s at rest; 3.4s while a reading is in progress. */
+  .rh-beam {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 220px;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(163, 230, 53, 0.055) 45%,
+      rgba(190, 255, 160, 0.14) 62%,
+      rgba(163, 230, 53, 0.5) 70%,
+      transparent 72%
+    );
+    animation: rhBeamSweep 14s cubic-bezier(0.7, 0, 0.3, 1) infinite;
+    z-index: 1;
+  }
+
+  [data-state="reading"] .rh-beam { animation-duration: 3.4s; }
+  [data-state="settled"] .rh-beam { animation: none; opacity: 0; }
+  [data-state="failed"]  .rh-beam { animation: none; opacity: 0; }
+
+  @keyframes rhBeamSweep {
+    0%   { transform: translate3d(-240px, 0, 0); opacity: 0; }
+    12%  { opacity: 1; }
+    88%  { opacity: 1; }
+    100% { transform: translate3d(calc(100% + 100vw), 0, 0); opacity: 0; }
+  }
+
+  .rh-readout {
+    background: rgba(255, 255, 255, 0.018);
+    border: 1px solid rgba(255, 255, 255, 0.055);
+    transition: border-color 700ms ease, box-shadow 700ms ease;
+  }
+
+  [data-state="settled"] .rh-readout {
+    border-color: rgba(163, 230, 53, 0.24);
+    box-shadow: 0 0 60px -28px rgba(163, 230, 53, 0.75);
+  }
+
+  /* A second, tighter pass over the still while it is being read. */
+  .rh-readout-scan {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      transparent 42%,
+      rgba(163, 230, 53, 0.24) 50%,
+      transparent 58%
+    );
+    animation: rhReadoutScan 2.1s linear infinite;
+  }
+
+  [data-state="settled"] .rh-readout-scan,
+  [data-state="failed"] .rh-readout-scan,
+  [data-state="idle"] .rh-readout-scan { animation: none; opacity: 0; }
+
+  @keyframes rhReadoutScan {
+    0%   { transform: translate3d(0, -100%, 0); }
+    100% { transform: translate3d(0, 100%, 0); }
+  }
+
+  .rh-bracket {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-color: rgba(163, 230, 53, 0.85);
+    transition: margin 900ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 900ms ease;
+    margin: 18px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  [data-state="settled"] .rh-bracket { margin: 8px; opacity: 1; }
+  [data-state="idle"] .rh-bracket { opacity: 0; }
+
+  .rh-bracket-tl { top: 0; left: 0;  border-left: 1.5px solid; border-top: 1.5px solid; }
+  .rh-bracket-tr { top: 0; right: 0; border-right: 1.5px solid; border-top: 1.5px solid; }
+  .rh-bracket-bl { bottom: 0; left: 0;  border-left: 1.5px solid; border-bottom: 1.5px solid; }
+  .rh-bracket-br { bottom: 0; right: 0; border-right: 1.5px solid; border-bottom: 1.5px solid; }
+
+  /* Stage rail ticks: a line that grows and lights when its beat is current. */
+  .rh-tick {
+    display: block;
+    height: 1px;
+    width: 10px;
+    background: rgba(255, 255, 255, 0.14);
+    transition: width 500ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 500ms ease,
+      box-shadow 500ms ease;
+  }
+
+  .rh-tick.is-done { width: 16px; background: rgba(255, 255, 255, 0.32); }
+
+  .rh-tick.is-now {
+    width: 26px;
+    background: #a3e635;
+    box-shadow: 0 0 12px rgba(163, 230, 53, 0.65);
+  }
+
+  .rh-caret {
+    display: inline-block;
+    width: 6px;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: -0.12em;
+    background: rgba(163, 230, 53, 0.75);
+    animation: rhCaret 900ms steps(2, start) infinite;
+  }
+
+  @keyframes rhCaret {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rh-lightfield,
+  .rh-beam,
+  .rh-readout-scan,
+  .rh-caret {
+    animation: none;
+  }
+  .rh-beam { opacity: 0; }
+}

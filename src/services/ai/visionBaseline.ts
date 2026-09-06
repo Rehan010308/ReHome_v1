@@ -1,7 +1,7 @@
 import type { AIClassificationResult } from "./types";
 import { assessDestination, type DestinationAssessment } from "@/services/destination/engine";
 
-export type IntelligenceSource = "vision-baseline" | "rehome-ai" | "mock";
+export type IntelligenceSource = "vision-baseline" | "rehome-ai" | "mock" | "unavailable";
 
 export interface ItemIntelligence extends AIClassificationResult {
   source: IntelligenceSource;
@@ -89,7 +89,66 @@ export function intelligenceFromLabel(label: string, confidence01: number): Item
   };
 }
 
-export async function detectWithCocoSsd(file: File | Blob): Promise<ItemIntelligence> {
+/**
+ * The detector is not local code: COCO-SSD pulls its weights from
+ * storage.googleapis.com in five shards. On a slow or filtered connection those
+ * requests never settle, and an unbounded await leaves the scan sitting on
+ * "Identifying object" forever with nothing actually happening. We would rather
+ * admit the detector is unavailable and let the person describe the item.
+ */
+export const DETECTOR_TIMEOUT_MS = 20_000;
+
+export class DetectorUnavailableError extends Error {
+  constructor(message = "The on-device detector could not load.") {
+    super(message);
+    this.name = "DetectorUnavailableError";
+  }
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new DetectorUnavailableError()), ms);
+    void work.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (cause) => { clearTimeout(timer); reject(cause); }
+    );
+  });
+}
+
+/**
+ * What we return when detection genuinely did not run. Nothing is invented:
+ * the identity fields stay empty so the interface asks the question instead of
+ * asserting an answer it does not have.
+ */
+export function detectionUnavailable(): ItemIntelligence {
+  const destination = assessDestination({
+    category: "",
+    subCategory: "",
+    itemType: "",
+    condition: UNKNOWN_CONDITION,
+  });
+  return {
+    category: "",
+    subCategory: "",
+    itemType: "",
+    condition: UNKNOWN_CONDITION,
+    reusability: reusabilityLabelFor(destination),
+    potentialUse: destination.primary.recipient,
+    confidence: 0,
+    source: "unavailable",
+    destinationPath: destination.primary.label,
+    whoMightNeed: destination.primary.recipient,
+    lowConfidence: true,
+    detectedLabel: null,
+    destination,
+  };
+}
+
+export function detectWithCocoSsd(file: File | Blob): Promise<ItemIntelligence> {
+  return withTimeout(runCocoSsd(file), DETECTOR_TIMEOUT_MS);
+}
+
+async function runCocoSsd(file: File | Blob): Promise<ItemIntelligence> {
   const [{ load }, tf] = await Promise.all([
     import("@tensorflow-models/coco-ssd"),
     import("@tensorflow/tfjs"),

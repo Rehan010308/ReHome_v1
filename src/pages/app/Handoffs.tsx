@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { MapPin, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
+import { MapPin, QrCode as QrIcon, ScanLine, Sparkles } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useAsync } from "@/hooks/useAsync";
 import { fetchOwnOrganization } from "@/lib/data/profiles";
@@ -17,6 +18,10 @@ import {
 import type { AllocationWithContext } from "@/types/database";
 import { GlowButton, StatusBadge } from "@/components/system/primitives";
 import { DestinationMap } from "@/components/spatial/DestinationMap";
+import { JourneyMap } from "@/components/spatial/JourneyMap";
+import { QrCode } from "@/components/system/QrCode";
+import { handoffReference, handoffUrl, impactReceiptUrl } from "@/services/handoff/codes";
+import { coordsOf } from "@/services/geo";
 import { EmptyState, ErrorState, LoadingState } from "@/components/system/DataState";
 
 type Role = "donor" | "organization";
@@ -108,23 +113,61 @@ function ScheduleForm({
   );
 }
 
+interface ViewerLocation {
+  latitude?: number | null;
+  longitude?: number | null;
+  name?: string | null;
+}
+
+/** Item coordinates win; the profile's saved area is the fallback, not a prompt. */
+function originFor(
+  item: AllocationWithContext["item"],
+  viewer: ViewerLocation
+): { latitude: number | null; longitude: number | null } | null {
+  if (item?.latitude != null && item.longitude != null) {
+    return { latitude: item.latitude, longitude: item.longitude };
+  }
+  if (viewer.latitude != null && viewer.longitude != null) {
+    return { latitude: viewer.latitude, longitude: viewer.longitude };
+  }
+  return null;
+}
+
+function originNameFor(
+  item: AllocationWithContext["item"],
+  viewer: ViewerLocation
+): string | null {
+  if (item?.latitude != null && item.longitude != null) {
+    return item.location ?? viewer.name ?? null;
+  }
+  return viewer.name ?? null;
+}
+
 function AllocationCard({
   row,
   handoff,
   role,
   busy,
+  viewerLocation,
   onAction,
 }: {
   row: AllocationWithContext;
   handoff: HandoffRow | undefined;
   role: Role;
   busy: boolean;
+  /** The signed-in user's own saved location, used when the item carries none. */
+  viewerLocation: ViewerLocation;
   onAction: (action: "schedule" | "handed" | "confirm" | "cancel", payload?: { when: string; where: string }) => void;
 }) {
   const [scheduling, setScheduling] = useState(false);
+  const [showingQr, setShowingQr] = useState(false);
   const item = row.item;
   const req = row.requirement;
   const org = req?.organization;
+
+  const originPoint = originFor(item, viewerLocation);
+  const journeyOrigin = originPoint ? coordsOf(originPoint) : null;
+  const journeyDestination = org ? coordsOf({ latitude: org.latitude, longitude: org.longitude }) : null;
 
   const counterparty = role === "donor" ? (org?.name ?? "Organization") : (item?.item_type ?? "Item");
   const when = formatWhen(handoff?.scheduled_for ?? null);
@@ -182,22 +225,105 @@ function AllocationCard({
             )}
           </p>
           {role === "donor" ? (
-            <p className="mt-2 text-[13px] text-white/45">
-              {row.quantity_allocated} recorded in your impact.
-            </p>
+            <>
+              <p className="mt-2 text-[13px] text-white/45">
+                {row.quantity_allocated} recorded in your impact.
+              </p>
+              <Link
+                to={impactReceiptUrl(row.id).replace(/^.*#/, "")}
+                className="mt-4 inline-flex items-center gap-2 text-[13px] text-lime-300/90 hover:text-lime-200"
+              >
+                <QrIcon className="h-3.5 w-3.5" />
+                View impact receipt
+              </Link>
+            </>
           ) : null}
         </div>
       ) : null}
 
-      {/* Destination revealed once the contribution is committed. */}
+      {/* Destination revealed once the contribution is committed. The route
+          starts from wherever the location is already known — the item's own
+          point first, then the location saved on the profile. Asking for it
+          again here would be asking twice for the same thing. */}
       {!closed && org ? (
         <div className="mt-5">
-          <DestinationMap
-            destination={{ latitude: org.latitude, longitude: org.longitude }}
-            origin={item ? { latitude: item.latitude, longitude: item.longitude } : null}
-            organizationName={org.name}
-          />
+          {journeyOrigin && journeyDestination ? (
+            <JourneyMap
+              origin={journeyOrigin}
+              destination={journeyDestination}
+              originLabel={originNameFor(item, viewerLocation) ?? "Your area"}
+              destinationLabel={org.name}
+              fallback={
+                <DestinationMap
+                  destination={{ latitude: org.latitude, longitude: org.longitude }}
+                  origin={originFor(item, viewerLocation)}
+                  originName={originNameFor(item, viewerLocation)}
+                  organizationName={org.name}
+                />
+              }
+            />
+          ) : (
+            <DestinationMap
+              destination={{ latitude: org.latitude, longitude: org.longitude }}
+              origin={originFor(item, viewerLocation)}
+              originName={originNameFor(item, viewerLocation)}
+              organizationName={org.name}
+            />
+          )}
         </div>
+      ) : null}
+
+      {/* ── Handoff verification ──────────────────────────────────────
+          A donor pressing a button is a claim; a code the organization scans
+          against this exact allocation is what turns it into a record. */}
+      {!closed && role === "donor" ? (
+        <div className="mt-5 rh-inset overflow-hidden rounded-[20px]">
+          <button
+            type="button"
+            onClick={() => setShowingQr((v) => !v)}
+            className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+          >
+            <span className="inline-flex items-center gap-2.5 text-[15px] text-white/85">
+              <QrIcon className="h-4 w-4 text-lime-300" />
+              {showingQr ? "Hide handoff QR" : "Show handoff QR"}
+            </span>
+            <span className="rh-mono text-[11px] tracking-[0.2em] text-white/35">
+              {handoffReference(row.id)}
+            </span>
+          </button>
+
+          {showingQr ? (
+            <div className="flex flex-wrap items-center gap-7 border-t border-white/[0.06] px-5 py-6">
+              <QrCode
+                value={handoffUrl(row.id)}
+                size={168}
+                label={`Handoff code ${handoffReference(row.id)}`}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="font-display text-lg font-semibold tracking-tight">
+                  {item?.item_type ?? "Item"} × {row.quantity_allocated}
+                </p>
+                <p className="mt-2 max-w-xs text-[13px] leading-relaxed text-white/45">
+                  Show this at {org?.name ?? "the destination"}. They scan it and confirm receipt —
+                  that is what records your impact, not this screen.
+                </p>
+                <p className="mt-3 text-[13px] text-white/30">
+                  No personal details are encoded. The code names this handoff only.
+                </p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!closed && role === "organization" ? (
+        <Link
+          to={`/app/verify/${row.id}`}
+          className="mt-5 inline-flex items-center gap-2.5 rounded-full border border-lime-300/25 bg-lime-300/[0.06] px-5 py-2.5 text-[13px] font-semibold text-lime-100 transition-colors hover:border-lime-300/45"
+        >
+          <ScanLine className="h-3.5 w-3.5" />
+          Verify and confirm receipt
+        </Link>
       ) : null}
 
       {scheduling ? (
@@ -259,6 +385,11 @@ export default function Handoffs() {
   const { profile } = useAuth();
   const role: Role = profile?.accountType === "organization" ? "organization" : "donor";
   const userId = profile?.userId;
+  const viewerLocation: ViewerLocation = {
+    latitude: profile?.latitude,
+    longitude: profile?.longitude,
+    name: profile?.location,
+  };
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -351,6 +482,7 @@ export default function Handoffs() {
                 handoff={handoffs.get(row.id)}
                 role={role}
                 busy={busyId === row.id}
+                viewerLocation={viewerLocation}
                 onAction={(action, payload) => onAction(row, action, payload)}
               />
             ))}
@@ -368,6 +500,7 @@ export default function Handoffs() {
                   handoff={handoffs.get(row.id)}
                   role={role}
                   busy={busyId === row.id}
+                  viewerLocation={viewerLocation}
                   onAction={(action, payload) => onAction(row, action, payload)}
                 />
               ))}

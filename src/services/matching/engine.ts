@@ -1,5 +1,6 @@
 import type { ItemRow, OrganizationRow, RequirementRow } from "@/types/database";
 import { coordsOf, distanceKm, formatDistance } from "@/services/geo";
+import { assessDestination } from "@/services/destination/engine";
 
 /**
  * Supply → demand scoring.
@@ -104,6 +105,14 @@ export function isTypeConfirmed(item: Pick<ItemRow, "user_corrected" | "confiden
   return (item.confidence ?? 0) >= 75;
 }
 
+/** Organization types that can lawfully take material for recovery or repair. */
+const RECOVERY_ORG_TYPES = /recycl|refurbish|scrap|waste|e-?waste|repair/;
+
+function acceptsRecovery(organization: OrganizationRow | null): boolean {
+  if (!organization) return false;
+  return RECOVERY_ORG_TYPES.test(norm(organization.org_type));
+}
+
 export function scoreItemAgainstRequirement(
   item: ItemRow,
   requirement: RequirementRow,
@@ -127,6 +136,25 @@ export function scoreItemAgainstRequirement(
 
   // Nothing left to give, or nothing left to need.
   if (available <= 0 || remaining <= 0) return empty;
+
+  // Hazardous and unsuitable items are routed by what they are, not by demand.
+  // They must never be offered to a school, shelter or kitchen however well the
+  // category lines up — only to organizations equipped to process them.
+  const assessment = assessDestination({
+    category: item.category,
+    subCategory: item.subcategory,
+    itemType: item.item_type,
+    condition: item.condition,
+  });
+  if (assessment.hazard && !acceptsRecovery(organization)) return empty;
+  if (assessment.hazard) {
+    factors.push({
+      label: `Not suitable for reuse — routed to ${organization?.name ?? "a recovery partner"} for ${
+        assessment.primary.tier === "recycling" ? "materials recovery" : "responsible disposal"
+      }`,
+      kind: "caution",
+    });
+  }
 
   const categoryHit = norm(item.category) === norm(requirement.category);
   const typeHit = norm(item.item_type) === norm(requirement.item_type);
@@ -240,6 +268,9 @@ export function scoreItemAgainstRequirement(
 
 export function reusabilityScoreFromLabel(label: string, confidence: number): number {
   const text = label.toLowerCase();
+  // Checked first: "None — safe handling required" is a reuse score of nearly
+  // zero, and must not fall through to the confidence of the detection.
+  if (text.includes("none") || text.includes("safe handling")) return 5;
   if (text.includes("high")) return Math.min(100, Math.max(70, Math.round(confidence)));
   if (text.includes("moderate") || text.includes("medium")) return 58;
   if (text.includes("low") || text.includes("material") || text.includes("recycl")) return 28;
